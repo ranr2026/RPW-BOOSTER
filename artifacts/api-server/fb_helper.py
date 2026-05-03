@@ -999,11 +999,34 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
     logs = []
     post_id = _post_id(post_url)
     logs.append(f"[INFO] Sharing {post_id} × {count}")
-    fb_dtsg, uid, access_token, authenticated, _auth_html = _get_auth(cookie, logs)
+    fb_dtsg, uid, _, authenticated, _auth_html = _get_auth(cookie, logs)
     if not fb_dtsg or not authenticated:
         return {"ok": True, "success": False, "count": 0,
                 "message": "❌ Cookie invalid or expired — re-export a fresh cookie from facebook.com",
                 "logs": logs}
+
+    # ── Get EAAG token via business.facebook.com (reference script — REQUIRED for Graph API share) ──
+    # _get_auth scans www.facebook.com which rarely embeds EAAG, so we call do_token() explicitly.
+    eaag_token = ""
+    try:
+        tok_res = do_token(cookie)
+        eaag_token = tok_res.get("token", "")
+        if eaag_token:
+            logs.append(f"[OK] EAAG token ready for Graph API share: {eaag_token[:14]}...")
+        else:
+            logs.append("[WARN] No EAAG token — Graph API method will be skipped, falling back to mbasic")
+    except Exception as e:
+        logs.append(f"[WARN] EAAG token extract: {e}")
+
+    # ── Parse cookie string into dict (reference passes cookies= dict to Graph API) ──
+    cookie_dict: dict = {}
+    try:
+        cookie_dict = {
+            p.split("=")[0].strip(): p.split("=", 1)[1].strip()
+            for p in cookie.split(";") if "=" in p
+        }
+    except Exception:
+        pass
 
     # Create sessions ONCE and reuse across all shares
     s_mob = make_cf_session(cookie, mobile=True)
@@ -1034,24 +1057,26 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
         logs.append(f"[INFO] Share {i+1}/{count}")
         done = False
 
-        # Method A: Graph API me/feed — HIGHEST priority when token available (reference script approach)
-        # Uses published=0 (timeline post, more permissive than published=1)
-        if not done and access_token and best_method in (None, "graph_api"):
+        # Method A: Graph API me/feed — HIGHEST priority (reference script approach, exact port)
+        # ses.post(f"https://graph.facebook.com/v18.0/me/feed?link={link}&published=0&access_token={token}",
+        #          headers=headers, cookies=cookie, timeout=25)
+        if not done and eaag_token and best_method in (None, "graph_api"):
             try:
-                is_video = any(k in post_url.lower() for k in ["video", "reel", "watch", "fbid"])
+                is_video = any(k in post_url.lower() for k in ["video", "reel", "watch", "watch?"])
                 ga_headers = {
                     "authority": "graph.facebook.com",
                     "cache-control": "max-age=0",
+                    "sec-ch-ua-mobile": "?0",
                     "user-agent": random.choice(UA_LIST),
                     **({"accept": "application/json",
                         "content-type": "application/x-www-form-urlencoded",
                         "sec-fetch-mode": "cors",
                         "sec-fetch-site": "cross-site"} if is_video else {}),
                 }
-                r_ga = s_web.post(
-                    "https://graph.facebook.com/v18.0/me/feed",
-                    params={"link": post_url, "published": "0", "access_token": access_token},
-                    headers=ga_headers, timeout=25,
+                # Use cf.post directly with cookies=cookie_dict — same as reference ses.post(..., cookies=cookie)
+                r_ga = cf.post(
+                    f"https://graph.facebook.com/v18.0/me/feed?link={urllib.parse.quote(post_url)}&published=0&access_token={eaag_token}",
+                    headers=ga_headers, cookies=cookie_dict, timeout=25,
                 )
                 d_ga = {}
                 try: d_ga = r_ga.json()
@@ -1059,16 +1084,17 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
                 logs.append(f"[DEBUG] Graph me/feed → {r_ga.status_code} {str(d_ga)[:120]}")
                 if "id" in d_ga:
                     target = d_ga["id"].split("_")[0] if "_" in d_ga["id"] else d_ga["id"]
-                    logs.append(f"[OK] Share {i+1} via Graph API me/feed ✓ uid={target}")
+                    logs.append(f"[OK] Share {i+1} via Graph API me/feed ✓ target_uid={target}")
                     done = True
                     best_method = "graph_api"
                 elif "error" in d_ga:
                     emsg = d_ga["error"].get("message", "").lower()
-                    logs.append(f"[DEBUG] Graph API error: {d_ga['error'].get('message','')[:100]}")
-                    # Suspend/checkpoint — mark token as invalid for this run
-                    if any(k in emsg for k in ["suspended", "checkpoint", "blocked", "disabled", "login required"]):
-                        logs.append("[WARN] Graph API: account suspended/blocked")
-                        access_token = ""  # stop using token for remaining shares
+                    logs.append(f"[WARN] Graph API: {d_ga['error'].get('message','')[:120]}")
+                    if any(k in emsg for k in ["suspended", "checkpoint", "blocked", "disabled", "login required", "rate limit"]):
+                        logs.append("[WARN] Account suspended/blocked — disabling Graph API for this run")
+                        eaag_token = ""  # stop using token for remaining shares
+                    elif any(k in emsg for k in ["video", "reel", "content"]):
+                        logs.append("[WARN] Video/reel error — will retry with next method")
             except Exception as e:
                 logs.append(f"[WARN] Graph me/feed: {e}")
 
@@ -1105,17 +1131,23 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
             except Exception as e:
                 logs.append(f"[WARN] GraphQL share {i+1}: {e}")
 
-        # Method C2: Graph API published=1 (secondary, if method A failed but token still valid)
-        if not done and access_token and best_method in (None, "graph_api"):
+        # Method C2: Graph API published=1 fallback (if Method A failed but token still valid)
+        if not done and eaag_token and best_method in (None, "graph_api"):
             try:
-                r = s_web.post("https://graph.facebook.com/v18.0/me/feed",
-                               params={"link": post_url, "published": "1", "access_token": access_token},
-                               timeout=11)
-                d = r.json()
+                r = cf.post(
+                    f"https://graph.facebook.com/v18.0/me/feed?link={urllib.parse.quote(post_url)}&published=1&access_token={eaag_token}",
+                    headers={"user-agent": random.choice(UA_LIST)},
+                    cookies=cookie_dict, timeout=11,
+                )
+                d = {}
+                try: d = r.json()
+                except Exception: pass
                 if "id" in d:
-                    logs.append(f"[OK] Share {i+1} via Graph API ✓ id={d['id']}")
+                    logs.append(f"[OK] Share {i+1} via Graph API published=1 ✓ id={d['id']}")
                     done = True
                     best_method = "graph_api"
+                elif "error" in d:
+                    logs.append(f"[WARN] Graph API C2: {d['error'].get('message','')[:100]}")
             except Exception as e:
                 logs.append(f"[WARN] Graph API share {i+1}: {e}")
 
