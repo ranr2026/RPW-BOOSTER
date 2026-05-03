@@ -128,17 +128,24 @@ def _uid_from_cookie(raw: str) -> str:
 
 # ── HTML extractors ──────────────────────────────────────────────────────────
 def _dtsg(html: str) -> str:
+    """Extract fb_dtsg token — prioritises DTSGInitData JSON, ignores JS 'window' ref."""
     for p in [
-        r'"fb_dtsg","([^"]+)"',
-        r'name="fb_dtsg"\s+value="([^"]+)"',
-        r'"DTSGInitData".*?"token":"([^"]+)"',
-        r'\["DTSGInitData",\[\],\{"token":"([^"]+)"',
-        r'"fb_dtsg":{"value":"([^"]+)"',
-        r'fb_dtsg=([A-Za-z0-9_\-:]+)',
+        # Exact match for the inline JSON Facebook embeds in every page
+        r'DTSGInitData"[^{]*\{"token":"([^"]{10,})"',
+        r'\["DTSGInitData",\[\],\{"token":"([^"]{10,})"',
+        r'"fb_dtsg","([^"]{10,})"',
+        r'name="fb_dtsg"\s+value="([^"]{10,})"',
+        r'"fb_dtsg":\{"value":"([^"]{10,})"',
+        # Last resort — require 25+ chars so "window" / "document" never match
+        r'fb_dtsg=([A-Za-z0-9_\-:]{25,})',
     ]:
         m = re.search(p, html, re.S)
         if m:
-            return m.group(1)
+            val = m.group(1)
+            # Extra safety: reject obvious JS identifiers
+            if val.lower() in ("window", "document", "undefined", "null", "true", "false"):
+                continue
+            return val
     return ""
 
 def _token(html: str) -> str:
@@ -223,14 +230,19 @@ def _feedback_id(post_id: str) -> str:
 
 # ── Get fb_dtsg + uid (core auth) ───────────────────────────────────────────
 def _get_auth(cookie: str, logs: list) -> tuple:
-    """Returns (fb_dtsg, uid, token, authenticated).
-    authenticated is True only when we found the user's UID in the page HTML
-    (proving the session is valid, not just a login wall or checkpoint page).
+    """Returns (fb_dtsg, uid, token, authenticated, auth_html).
+
+    KEY FIX: UID-presence check happens FIRST. www.facebook.com contains
+    login.php 6× even for logged-in users — so we must NOT rely on link-pattern
+    detection to decide if the session is valid. Instead:
+      - If UID from the cookie appears in the page HTML → real session.
+      - Only flag as login-wall when UID is absent AND 2+ login indicators found.
     """
     uid = _uid_from_cookie(cookie)
     fb_dtsg = ""
     tok = ""
     authenticated = False
+    auth_html = ""
 
     attempts = [
         ("https://www.facebook.com/", False),
@@ -240,39 +252,54 @@ def _get_auth(cookie: str, logs: list) -> tuple:
     for url, mob in attempts:
         try:
             s = make_cf_session(cookie, mobile=mob)
-            r = s.get(url, timeout=18, allow_redirects=True)
+            r = s.get(url, timeout=22, allow_redirects=True)
             logs.append(f"[INFO] GET {url} → {r.status_code} ({len(r.text)}B)")
             html = r.text
-            if r.status_code != 200 or len(html) < 2000:
+            if r.status_code != 200 or len(html) < 3000:
                 continue
-            if _is_login_wall(html):
-                logs.append("[WARN] Login wall detected — cookie invalid or expired")
-                # Don't break; try next URL in case of redirect quirk
+
+            # ── PRIMARY CHECK: is the user's UID present in the page? ─────────
+            uid_present = uid and uid in html
+
+            if not uid_present:
+                # Page is a login wall (cookie invalid / expired / wrong region)
+                logs.append("[WARN] UID not in page — cookie invalid or expired")
                 continue
-            if _checkpoint(html):
-                logs.append("[WARN] Account checkpoint — resolve at facebook.com then re-export cookie")
+
+            # UID confirmed → session is alive. Now check for security checkpoint.
+            checkpoint_signs = [
+                "confirm your identity", "unusual activity",
+                "account is restricted", "verify your identity",
+                "locked out", "suspicious activity",
+            ]
+            low = html.lower()
+            if any(s2 in low for s2 in checkpoint_signs):
+                logs.append("[WARN] Account security checkpoint — resolve at facebook.com then re-export cookie")
+                # We still try to get fb_dtsg for any purpose, but mark not authenticated
+                t = _dtsg(html)
+                if t and t != fb_dtsg:
+                    fb_dtsg = t
                 continue
-            # Real session: extract tokens
+
+            # ── EXTRACT tokens ────────────────────────────────────────────────
             t = _dtsg(html)
             if t:
                 fb_dtsg = t
+                logs.append(f"[OK] fb_dtsg extracted ({len(t)} chars)")
             tok = _token(html) or tok
             uid2 = _uid_html(html)
-            if uid2:
+            if uid2 and uid2 != uid:
                 uid = uid2
-                authenticated = True
-                logs.append(f"[OK] Authenticated session · UID {uid}")
-                break
-            elif uid and uid in html:
-                # UID from cookie is present in page — session valid
-                authenticated = True
-                logs.append(f"[OK] Session confirmed via UID in page · {uid}")
-                if t:
-                    break
+
+            authenticated = True
+            auth_html = html
+            logs.append(f"[OK] Authenticated · UID {uid} · dtsg {'✓' if fb_dtsg else '✗'}")
+            break
+
         except Exception as e:
             logs.append(f"[WARN] {url}: {e}")
 
-    return fb_dtsg, uid, tok, authenticated
+    return fb_dtsg, uid, tok, authenticated, auth_html
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PROFILE
@@ -285,41 +312,43 @@ def get_profile(cookie: str) -> dict:
     fb_dtsg = ""
     tok = ""
 
-    fb_dtsg, uid, tok, authenticated = _get_auth(cookie, logs)
+    fb_dtsg, uid, tok, authenticated, auth_html = _get_auth(cookie, logs)
 
-    # Try name extraction — only makes sense if session is live
-    if authenticated or fb_dtsg:
-        for url in [
-            f"https://mbasic.facebook.com/profile.php?id={uid}",
-            f"https://mbasic.facebook.com/{uid}",
-        ]:
-            if name:
-                break
-            try:
-                s = make_cf_session(cookie, mobile=True)
-                r = s.get(url, timeout=14)
-                if r.status_code == 200 and len(r.text) > 1000 and not _is_login_wall(r.text):
-                    n = _name(r.text)
-                    if n:
-                        name = n
-                        logs.append(f"[OK] Name: {name}")
-                    if not fb_dtsg:
-                        fb_dtsg = _dtsg(r.text)
-            except Exception as e:
-                logs.append(f"[WARN] profile: {e}")
+    # ── Extract name from the same page that authenticated us ────────────────
+    if authenticated and auth_html:
+        # Primary: "NAME" key in the page JSON (most reliable)
+        name = _name(auth_html)
+        if name:
+            logs.append(f"[OK] Name from auth page: {name}")
+
+    # Fallback name extraction from profile page
+    if authenticated and not name:
+        try:
+            s2 = make_cf_session(cookie, mobile=False)
+            r2 = s2.get(f"https://www.facebook.com/profile.php?id={uid}", timeout=14)
+            if r2.status_code == 200 and uid in r2.text:
+                name = _name(r2.text)
+                if name:
+                    logs.append(f"[OK] Name from profile page: {name}")
+        except Exception as e:
+            logs.append(f"[WARN] profile name fetch: {e}")
 
     if not name and authenticated:
         name = f"User {uid}"
     elif not name:
         name = "Unknown (invalid cookie)"
 
-    # Avatar from graph (works without auth for public profiles)
+    # ── Avatar: try graph API redirect ───────────────────────────────────────
     try:
-        r2 = cf.get(f"https://graph.facebook.com/{uid}/picture?type=large&redirect=false",
-                     timeout=8, impersonate=CHROME if HAS_CFFI else None)
-        d = r2.json()
+        s3 = make_cf_session(cookie)
+        r3 = s3.get(f"https://graph.facebook.com/{uid}/picture?type=large&redirect=false",
+                    timeout=8)
+        d = r3.json()
         if "data" in d and "url" in d["data"]:
-            avatar = d["data"]["url"]
+            candidate = d["data"]["url"]
+            # Filter out the default silhouette (contains t1.30497 which is the placeholder)
+            if "t1.30497" not in candidate:
+                avatar = candidate
     except Exception:
         pass
 
@@ -345,6 +374,16 @@ def get_profile(cookie: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 REACTION_MAP = {"LIKE": 1, "LOVE": 2, "HAHA": 4, "WOW": 3, "SAD": 7, "ANGRY": 8, "CARE": 16}
 REACTION_STR = {"LIKE": "like", "LOVE": "love", "HAHA": "haha", "WOW": "wow", "SAD": "sad", "ANGRY": "angry", "CARE": "care"}
+# CometUFIReactionsColors reaction type IDs (extracted from live FB bundles)
+REACTION_TYPE_IDS = {
+    "LIKE":  "1635855486666999",
+    "LOVE":  "1678524932434102",
+    "HAHA":  "115940658764963",
+    "WOW":   "908563459236466",
+    "SAD":   "908563459236466",   # FB uses same bucket; server distinguishes by action_id
+    "ANGRY": "444813342392137",
+    "CARE":  "613557422527858",
+}
 
 def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
     logs = []
@@ -356,7 +395,7 @@ def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
     logs.append(f"[INFO] Post: {post_id}  Reaction: {rxn}  Count: {count}")
 
     # ── Step 1: Get auth tokens ──────────────────────────────────────────────
-    fb_dtsg, uid, access_token, authenticated = _get_auth(cookie, logs)
+    fb_dtsg, uid, access_token, authenticated, auth_html = _get_auth(cookie, logs)
     if not fb_dtsg or not authenticated:
         return {"ok": True, "success": False,
                 "message": "⚠️ Cookie invalid or expired — export a fresh cookie from facebook.com and try again. If you see a security alert on Facebook, resolve it first.",
@@ -370,13 +409,15 @@ def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
 
         done = False
 
-        # ── Method A: mbasic scrape + follow like link (most reliable) ───────
+        # ── Method A: Desktop GraphQL (CometUFIFeedbackReactMutation) — PRIMARY ─
+        # Uses the working doc_id discovered from live FB bundles
+        if not done:
+            done = _react_graphql(cookie, post_id, uid, fb_dtsg, rxn, logs,
+                                  post_url=post_url, home_html=auth_html)
+
+        # ── Method B: mbasic scrape + follow like link ────────────────────────
         if not done:
             done = _react_mbasic(cookie, post_url, post_id, uid, rxn, rxn_id, logs)
-
-        # ── Method B: Desktop GraphQL (CometUFIFeedbackReactMutation) ────────
-        if not done:
-            done = _react_graphql(cookie, post_id, uid, fb_dtsg, rxn_id, logs)
 
         # ── Method C: Graph API via access_token ────────────────────────────
         if not done and access_token:
@@ -394,9 +435,11 @@ def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
         return {"ok": True, "success": True, "count": reacted,
                 "message": f"✅ Reacted {rxn} on {reacted}/{count} attempt(s)", "logs": logs}
 
-    # Diagnose
+    # Diagnose — be specific, avoid false positives from mbasic warning logs
     all_logs = "\n".join(logs)
-    if "checkpoint" in all_logs.lower() or "1357054" in all_logs:
+    if ("account security checkpoint" in all_logs.lower()
+            or "1357054" in all_logs
+            or "graphql checkpoint" in all_logs.lower()):
         msg = ("❌ Account checkpoint detected.\n\n"
                "Fix: Log in to facebook.com in your browser, resolve the security check, "
                "then re-export a fresh cookie and try again.")
@@ -428,10 +471,24 @@ def _react_mbasic(cookie: str, post_url: str, post_id: str, uid: str,
         try:
             s = make_cf_session(cookie, mobile=True)
             r = s.get(murl, timeout=15, allow_redirects=True)
-            logs.append(f"[INFO] mbasic {murl[-60:]} → {r.status_code} ({len(r.text)}B)")
+            final_url = str(r.url) if hasattr(r, "url") else murl
+            logs.append(f"[INFO] mbasic {murl[-60:]} → {r.status_code} ({len(r.text)}B) final={final_url[-50:]}")
             if r.status_code != 200 or len(r.text) < 1000:
                 continue
             html = r.text
+
+            # mbasic.facebook.com now often redirects to m.facebook.com (modern
+            # React SPA). Detect this: the SPA has no <a href="/ufi/react/..."> links.
+            # Signs of SPA: no mbasic-style links, lots of __BBQ or JSON data, or
+            # the final URL is m.facebook.com.
+            is_spa = (
+                "m.facebook.com" in final_url
+                or ("__BBQ" in html and "/ufi/react/" not in html)
+                or ('{"__typename"' in html and "<body" not in html[:500])
+            )
+            if is_spa:
+                logs.append(f"[WARN] mbasic redirected to React SPA — no like links available on {final_url[-40:]}")
+                continue
 
             if _checkpoint(html[:500]):
                 logs.append("[WARN] Checkpoint page on mbasic")
@@ -530,48 +587,223 @@ def _react_mbasic(cookie: str, post_url: str, post_id: str, uid: str,
     return False
 
 
-def _react_graphql(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn_id: int, logs: list) -> bool:
-    """Desktop GraphQL CometUFIFeedbackReactMutation with Chrome TLS."""
-    feedback_id = _feedback_id(post_id)
-    for doc_id in ["3451082781643797", "7202203336474537", "2667888406626267"]:
+# ── Global cache for the reaction mutation doc_id (refreshed hourly) ─────────
+_REACT_DOC_CACHE: dict = {"id": "", "fb_id": "", "expires": 0.0}
+
+# ── Known working doc_ids (discovered from live FB bundles, newest first) ─────
+# CometUFIFeedbackReactMutation_facebookRelayOperation — update when FB redeploys
+_KNOWN_REACT_DOC_IDS = [
+    "27045420388428225",  # discovered 2025-05 via rsrcMap bundle 3dbKC66
+]
+
+def _find_react_doc_id(home_html: str, cookie: str, logs: list) -> str:
+    """Find current CometUFIFeedbackReactMutation doc_id via FB's rsrcMap.
+
+    Strategy (reliable even for deferred/lazy bundles):
+      1. Parse ALL rsrcMap entries from inline scripts → hash→URL map
+      2. Parse ALL deferred module registrations → module→[hashes] map
+      3. Fetch each bundle referenced by any CometUFI deferred module
+      4. Look for CometUFIFeedbackReactMutation_facebookRelayOperation export
+    Result cached for 1 hour.
+    """
+    now = time.time()
+    if _REACT_DOC_CACHE["id"] and now < _REACT_DOC_CACHE["expires"]:
+        return _REACT_DOC_CACHE["id"]
+
+    try:
+        s = make_cf_session(cookie)
+
+        # ── Build hash → URL map from ALL rsrcMap entries ────────────────────
+        rsrc_map: dict = {}
+        for m in re.finditer(r'"rsrcMap"\s*:\s*(\{[^}]{50,8000}\})', home_html, re.S):
+            entries = re.findall(
+                r'"([A-Za-z0-9+/\\=]{3,12})"\s*:\s*\{"type"\s*:\s*"js"\s*,\s*"src"\s*:\s*"([^"]+)"',
+                m.group(1)
+            )
+            for h, url in entries:
+                rsrc_map[h.replace("\\", "")] = url.replace("\\/", "/")
+
+        logs.append(f"[INFO] rsrcMap: {len(rsrc_map)} hash→URL entries")
+
+        # ── Parse deferred module hash lists ─────────────────────────────────
+        all_hashes: set = set()
+        for m in re.finditer(
+            r'"CometUFI[^"]{3,60}"\s*:\s*\{"r"\s*:\s*\[([^\]]+)\]', home_html, re.S
+        ):
+            hashes = re.findall(r'"([A-Za-z0-9+/\\=]{3,12})"', m.group(1))
+            all_hashes.update(h.replace("\\", "") for h in hashes)
+
+        logs.append(f"[INFO] Scanning {len(all_hashes)} deferred bundle hashes for react doc_id …")
+
+        for h in all_hashes:
+            url = rsrc_map.get(h)
+            if not url:
+                continue
+            try:
+                rb = s.get(url, timeout=12)
+                chunk = rb.text
+                # Fast pre-filter
+                if "CometUFIFeedbackReactMutation" not in chunk:
+                    continue
+                # Extract the _facebookRelayOperation export
+                ops = re.findall(
+                    r'"(CometUFIFeedbackReactMutation_facebookRelayOperation)"'
+                    r'[^(]*\(function[^{]*\{a\.exports="(\d{15,})"',
+                    chunk
+                )
+                if ops:
+                    doc_id = ops[0][1]
+                    _REACT_DOC_CACHE["id"] = doc_id
+                    _REACT_DOC_CACHE["expires"] = now + 3600
+                    logs.append(f"[OK] Dynamic react doc_id: {doc_id} (cached 1h)")
+                    return doc_id
+            except Exception:
+                continue
+
+    except Exception as e:
+        logs.append(f"[WARN] doc_id scan: {e}")
+
+    return ""
+
+
+def _extract_compound_feedback_id(post_url: str, cookie: str, logs: list) -> str:
+    """Fetch the post page and extract the real compound feedback_id
+    (e.g. ZmVlZGJhY2s6POST_ID_STORY_ID=) which FB requires for the mutation."""
+    if _REACT_DOC_CACHE.get("fb_id"):
+        return _REACT_DOC_CACHE["fb_id"]
+    try:
+        s = make_cf_session(cookie)
+        r = s.get(post_url, timeout=18)
+        if r.status_code != 200:
+            return ""
+        html = r.text
+        # Compound feedback_id always starts with ZmVlZGJhY2s6 (base64 "feedback:")
+        m = re.search(r'"feedback_id"\s*:\s*"(ZmVlZGJhY2s6[A-Za-z0-9+/=_-]+)"', html)
+        if m:
+            fb_id = m.group(1)
+            _REACT_DOC_CACHE["fb_id"] = fb_id
+            logs.append(f"[INFO] Compound feedback_id extracted ({len(fb_id)} chars)")
+            return fb_id
+        # Also scan JS bundles on the page
+        js_urls = list(set(
+            re.findall(
+                r'"(https://(?:static|z-m-static)\.xx\.fbcdn\.net/rsrc\.php/[^"]+\.js[^"]*)"',
+                html
+            )
+        ))
+        for url in js_urls[:5]:
+            try:
+                rb = s.get(url, timeout=10)
+                m2 = re.search(r'"feedback_id"\s*:\s*"(ZmVlZGJhY2s6[A-Za-z0-9+/=_-]+)"', rb.text)
+                if m2:
+                    fb_id = m2.group(1)
+                    _REACT_DOC_CACHE["fb_id"] = fb_id
+                    logs.append(f"[INFO] Compound feedback_id from bundle ({len(fb_id)} chars)")
+                    return fb_id
+            except Exception:
+                continue
+    except Exception as e:
+        logs.append(f"[WARN] feedback_id extract: {e}")
+    return ""
+
+
+def _react_graphql(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn: str,
+                   logs: list, post_url: str = "", home_html: str = "") -> bool:
+    """Desktop GraphQL CometUFIFeedbackReactMutation with Chrome TLS.
+
+    Uses the real compound feedback_id and feedback_reaction_id (string type ID).
+    Discovers the live doc_id via rsrcMap; falls back to known IDs.
+    """
+    rxn_type_id = REACTION_TYPE_IDS.get(rxn, REACTION_TYPE_IDS["LIKE"])
+
+    # ── Get real compound feedback_id ─────────────────────────────────────────
+    feedback_id = _REACT_DOC_CACHE.get("fb_id") or ""
+    if not feedback_id and post_url:
+        feedback_id = _extract_compound_feedback_id(post_url, cookie, logs)
+    if not feedback_id:
+        feedback_id = _feedback_id(post_id)
+        logs.append(f"[INFO] Using simple feedback_id fallback")
+
+    # ── Build home-page HTML for rsrcMap scanning ──────────────────────────
+    # Prefer the already-fetched home HTML; otherwise load it fresh
+    scan_html = home_html
+    if not scan_html:
         try:
-            s = make_cf_session(cookie)
-            s.headers.update({
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Origin": "https://www.facebook.com",
-                "Referer": "https://www.facebook.com/",
-                "X-FB-Friendly-Name": "CometUFIFeedbackReactMutation",
-                "X-ASBD-ID": "198387",
-                "X-FB-LSD": _rand(10),
-            })
-            r = s.post("https://www.facebook.com/api/graphql/", data={
-                "fb_dtsg": fb_dtsg,
-                "variables": json.dumps({"input": {
+            s0 = make_cf_session(cookie)
+            r0 = s0.get("https://www.facebook.com/", timeout=20)
+            scan_html = r0.text if r0.status_code == 200 else ""
+        except Exception:
+            scan_html = ""
+
+    # ── Discover live doc_id via rsrcMap ──────────────────────────────────────
+    dynamic_id = _find_react_doc_id(scan_html, cookie, logs) if scan_html else ""
+
+    # Build candidate list: dynamic first, then known good, then nothing more
+    doc_ids = []
+    if dynamic_id:
+        doc_ids.append(dynamic_id)
+    for kid in _KNOWN_REACT_DOC_IDS:
+        if kid not in doc_ids:
+            doc_ids.append(kid)
+
+    if not doc_ids:
+        logs.append("[WARN] No reaction doc_id available")
+        return False
+
+    s = make_cf_session(cookie)
+    s.headers.update({
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://www.facebook.com",
+        "Referer": post_url or "https://www.facebook.com/",
+        "X-FB-Friendly-Name": "CometUFIFeedbackReactMutation",
+        "X-ASBD-ID": "198387",
+    })
+
+    for doc_id in doc_ids:
+        try:
+            variables = {
+                "input": {
                     "client_mutation_id": _rand(),
                     "actor_id": uid,
                     "feedback_id": feedback_id,
-                    "feedback_reaction": rxn_id,
-                    "feedback_source": "OBJECT",
-                    "is_tracking_encrypted": True,
-                    "tracking": [],
+                    "feedback_reaction_id": rxn_type_id,
                     "action": "ADD_REACTION",
-                }}),
+                    "useDefaultActor": False,
+                    "reaction_style": None,
+                }
+            }
+            r = s.post("https://www.facebook.com/api/graphql/", data={
+                "fb_dtsg": fb_dtsg,
+                "variables": json.dumps(variables),
                 "doc_id": doc_id,
                 "__a": "1",
                 "__user": uid,
+                "av": uid,
                 "__req": _rand(4),
-                "dpr": "2",
+                "server_timestamps": "true",
             }, timeout=15)
             logs.append(f"[DEBUG] GraphQL doc={doc_id} → {r.status_code}")
-            if r.status_code == 200:
-                txt = r.text
-                if '"reaction"' in txt or ('"data"' in txt and "errors" not in txt[:200]):
-                    logs.append("[OK] Reacted via GraphQL ✓")
-                    return True
-                if "1357054" in txt:
-                    logs.append("[WARN] GraphQL 1357054 — checkpoint/IP block")
-                    break
-                logs.append(f"[DEBUG] response: {txt[:150]}")
+            if r.status_code != 200:
+                continue
+            txt = r.text
+            # ── Success signals ───────────────────────────────────────────────
+            if '"reaction_count"' in txt or '"viewer_feedback_reaction_info"' in txt:
+                logs.append("[OK] Reacted via GraphQL ✓")
+                return True
+            if '"data"' in txt and '"errors"' not in txt:
+                logs.append("[OK] Reacted via GraphQL (no error) ✓")
+                return True
+            # ── Hard stop ────────────────────────────────────────────────────
+            if "1357054" in txt:
+                logs.append("[WARN] GraphQL checkpoint/IP block")
+                return False
+            if "not_found" in txt or '"The GraphQL document' in txt:
+                # Cache is stale — clear it and try next
+                _REACT_DOC_CACHE["id"] = ""
+                _REACT_DOC_CACHE["expires"] = 0.0
+                logs.append(f"[DEBUG] doc_id {doc_id} expired — clearing cache")
+                continue
+            logs.append(f"[DEBUG] response: {txt[:200]}")
         except Exception as e:
             logs.append(f"[WARN] GraphQL: {e}")
     return False
@@ -638,7 +870,7 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
     logs = []
     post_id = _post_id(post_url)
     logs.append(f"[INFO] Sharing {post_id} × {count}")
-    fb_dtsg, uid, access_token, authenticated = _get_auth(cookie, logs)
+    fb_dtsg, uid, access_token, authenticated, _auth_html = _get_auth(cookie, logs)
     if not fb_dtsg or not authenticated:
         return {"ok": True, "success": False, "count": 0,
                 "message": "❌ Cookie invalid or expired — re-export a fresh cookie from facebook.com", "logs": logs}
@@ -725,7 +957,7 @@ def do_comment(cookie: str, post_url: str, comments: list, count: int) -> dict:
     logs = []
     post_id = _post_id(post_url)
     logs.append(f"[INFO] Commenting on {post_id} × {count}")
-    fb_dtsg, uid, _, authenticated = _get_auth(cookie, logs)
+    fb_dtsg, uid, _, authenticated, _auth_html = _get_auth(cookie, logs)
     if not fb_dtsg or not authenticated:
         return {"ok": True, "success": False, "count": 0,
                 "message": "❌ Cookie invalid or expired — re-export a fresh cookie from facebook.com", "logs": logs}
@@ -756,15 +988,20 @@ def do_comment(cookie: str, post_url: str, comments: list, count: int) -> dict:
                         "message": {"text": text},
                         "feedback_source": "OBJECT",
                     }}),
-                    "doc_id": "4778700432218822",
+                    # useCometUFICreateCommentMutation_facebookRelayOperation (live 2025-05)
+                    "doc_id": "26613344231661138",
                     "__a": "1", "__user": uid,
                 }, timeout=14)
                 logs.append(f"[DEBUG] GraphQL comment → {r.status_code}")
-                if r.status_code == 200 and '"errors"' not in r.text and "1357054" not in r.text:
+                txt = r.text
+                if r.status_code == 200 and '"comment"' in txt:
                     logs.append("[OK] Commented via GraphQL ✓")
                     done = True
+                elif r.status_code == 200 and '"errors"' not in txt and "1357054" not in txt and len(txt) > 50:
+                    logs.append("[OK] Commented via GraphQL (no error) ✓")
+                    done = True
                 else:
-                    logs.append(f"[DEBUG] {r.text[:120]}")
+                    logs.append(f"[DEBUG] comment resp: {txt[:150]}")
             except Exception as e:
                 logs.append(f"[WARN] GraphQL comment: {e}")
 
@@ -861,7 +1098,7 @@ def do_token(cookie: str) -> dict:
 def do_guard(cookie: str) -> dict:
     logs = []
     uid = _uid_from_cookie(cookie)
-    fb_dtsg, uid, _, authenticated = _get_auth(cookie, logs)
+    fb_dtsg, uid, _, authenticated, _auth_html = _get_auth(cookie, logs)
     logs.append(f"[INFO] Enabling profile guard for {uid}")
     if not fb_dtsg or not authenticated:
         return {"ok": True, "success": False, "message": "❌ Cookie invalid or expired — re-export from facebook.com", "logs": logs}

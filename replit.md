@@ -77,3 +77,44 @@ c_user=61585216322349; xs=abc:def; datr=xyz; fr=abc; sb=def
 c_user=61585216322349
 xs=abc:def:2:ghi:123
 ```
+
+### Critical Facebook GraphQL Doc IDs (live, confirmed 2025-05)
+
+These are real Relay persisted query IDs discovered via FB's `rsrcMap` + deferred module registry:
+
+| Operation | Doc ID | Notes |
+|---|---|---|
+| `CometUFIFeedbackReactMutation` | `27045420388428225` | Reaction mutation — bundle hash `3dbKC66` |
+| `useCometUFICreateCommentMutation` | `26613344231661138` | Comment mutation |
+
+**Reaction Type IDs** (from `CometUFIReactionsColors` bundle):
+- LIKE: `1635855486666999`
+- LOVE: `1678524932434102`
+- HAHA: `115940658764963`
+- WOW: `908563459236466`
+- ANGRY: `444813342392137`
+- CARE: `613557422527858`
+
+**How doc_id discovery works** (`_find_react_doc_id`):
+1. Parse all `rsrcMap` entries from FB home page inline scripts → short-hash → CDN URL map
+2. Parse all deferred module registrations (`"CometUFI*":{"r":[hashes]}`) → module → bundle hashes
+3. Fetch each bundle and search for `CometUFIFeedbackReactMutation_facebookRelayOperation` export
+4. Result cached 1 hour. Falls back to `_KNOWN_REACT_DOC_IDS` list.
+
+**Real compound feedback_id** must be extracted from the post page HTML (regex `"feedback_id":"(ZmVlZGJhY2s6[...])"`), NOT simple `base64("feedback:POST_ID")`.
+
+### Reaction Variables Format (WORKING — verified 2025-05)
+
+```json
+{
+  "input": {
+    "client_mutation_id": "random",
+    "actor_id": "UID",
+    "feedback_id": "ZmVlZGJhY2s6...compound...",
+    "feedback_reaction_id": "1635855486666999",
+    "action": "ADD_REACTION",
+    "useDefaultActor": false,
+    "reaction_style": null
+  }
+}
+```
