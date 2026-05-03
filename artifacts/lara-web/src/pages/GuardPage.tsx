@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Shield, ShieldOff, ChevronLeft, Lock, Eye, AlertCircle, CheckCircle2, XCircle, Camera, Info } from "lucide-react";
+import { Shield, ShieldOff, ChevronLeft, AlertCircle, CheckCircle2, XCircle, Info } from "lucide-react";
 import type { Profile } from "@/App";
 import { api } from "@/lib/api";
 import LogWindow from "@/components/LogWindow";
@@ -33,173 +33,152 @@ export default function GuardPage({ profile, onBack }: Props) {
   const displayName = profile.name.startsWith("User ") ? `UID: ${profile.uid}` : profile.name;
 
   return (
-    <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
+    <div className="fb-page">
       {loading && (
         <div className="loading-overlay">
-          <div style={{ position: "relative", width: 88, height: 88, marginBottom: 12 }}>
-            <svg viewBox="0 0 88 88" style={{ transform: "rotate(-90deg)", width: 88, height: 88 }}>
-              <circle cx="44" cy="44" r="38" fill="none" stroke="rgba(168,85,247,0.15)" strokeWidth="5" />
-              <circle cx="44" cy="44" r="38" fill="none" stroke="url(#gpg)" strokeWidth="5"
-                strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 38}`}
-                strokeDashoffset={`${2 * Math.PI * 38 * 0.25}`}
-                style={{ animation: "spin 1.2s linear infinite" }}
-              />
-              <defs>
-                <linearGradient id="gpg" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#7c3aed" /><stop offset="100%" stopColor="#a855f7" />
-                </linearGradient>
-              </defs>
-            </svg>
+          <div style={{ position: "relative", width: 80, height: 80, marginBottom: 12 }}>
+            <div className="loader" style={{ width: 80, height: 80, borderWidth: 4 }} />
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Shield size={30} color="#a855f7" />
+              <Shield size={30} color="var(--primary)" />
             </div>
           </div>
-          <p style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>
+          <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>
             {guardOn ? "Enabling Guard..." : "Disabling Guard..."}
           </p>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 6 }}>Connecting to Facebook Privacy API</p>
+          <p style={{ fontSize: 12, color: "var(--text3)", marginTop: 6 }}>Trying 9 methods — please wait</p>
         </div>
       )}
 
-      {modal && !loading && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-icon" style={{ background: modal.success ? "rgba(168,85,247,0.15)" : "rgba(239,68,68,0.15)" }}>
-              {modal.success ? <CheckCircle2 size={30} color="#a855f7" /> : <XCircle size={30} color="#f87171" />}
-            </div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 10 }}>
-              {modal.success ? (guardOn ? "Guard Enabled!" : "Guard Disabled!") : "Guard Failed"}
-            </h3>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 20, lineHeight: 1.6 }}>{modal.message}</p>
-            {!modal.success && (
-              <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: "12px 14px", marginBottom: 16, textAlign: "left" }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  <Info size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>
-                    Facebook regularly updates their API. To enable manually: go to <strong style={{ color: "#fff" }}>facebook.com → Profile → ⋯ → Turn on Profile Guard</strong>
-                  </p>
-                </div>
-              </div>
-            )}
-            <button className="lara-btn" onClick={() => setModal(null)} style={{
-              background: modal.success ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "linear-gradient(135deg,#ef4444,#dc2626)", padding: "12px"
-            }}>OK</button>
-          </div>
-        </div>
-      )}
-
+      {/* Tool header */}
       <div className="tool-header">
         <button className="back-btn" onClick={onBack}><ChevronLeft size={18} /></button>
-        <div className="tool-icon-box" style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.25)" }}>
-          <Shield size={20} color="#a855f7" />
+        <div className="tool-icon-box" style={{ background: "rgba(139,92,246,0.12)" }}>
+          <Shield size={19} color="#8b5cf6" />
         </div>
-        <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Profile Guard</h2>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>Photo Protection System</p>
-        </div>
-        <div style={{ padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-          background: status === "success" ? "rgba(34,197,94,0.15)" : status === "fail" ? "rgba(239,68,68,0.1)" : "rgba(168,85,247,0.1)",
-          color: status === "success" ? "#4ade80" : status === "fail" ? "#f87171" : "#c084fc",
-          border: `1px solid ${status === "success" ? "rgba(34,197,94,0.3)" : status === "fail" ? "rgba(239,68,68,0.2)" : "rgba(168,85,247,0.2)"}`,
-        }}>
-          {status === "success" ? "Active" : status === "fail" ? "Failed" : "Ready"}
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)" }}>Profile Guard</div>
+          <div style={{ fontSize: 11, color: "var(--text3)" }}>Protect your profile picture</div>
         </div>
       </div>
 
-      <div style={{ padding: "16px 20px 0" }}>
-        <div className="profile-mini" style={{ marginBottom: 16 }}>
-          <img src={profile.avatar} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
-            onError={e => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=7c3aed&color=fff`; }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{displayName}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>UID: {profile.uid}</div>
+      <div style={{ padding: "14px 14px 0" }}>
+
+        {/* Profile card */}
+        <div className="profile-mini">
+          <img
+            src={profile.avatar} alt={displayName}
+            style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--border)", flexShrink: 0 }}
+            onError={e => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=8b5cf6&color=fff`; }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</p>
+            <p style={{ fontSize: 11, color: "var(--text3)", marginTop: 1 }}>UID: {profile.uid}</p>
           </div>
-          <span className="dot dot-green dot-pulse" />
+          <span className="badge badge-success"><span className="dot dot-green" /> Live</span>
         </div>
 
-        {/* Guard toggle */}
-        <div className="lara-card" style={{ padding: "24px 20px", marginBottom: 16, textAlign: "center", position: "relative", overflow: "hidden" }}>
-          <div style={{
-            position: "absolute", inset: 0, opacity: guardOn ? 0.06 : 0,
-            background: "radial-gradient(ellipse at center, #a855f7 0%, transparent 70%)",
-            transition: "opacity 0.5s",
-          }} />
-          <div style={{
-            width: 80, height: 80, borderRadius: "50%", margin: "0 auto 16px",
-            background: guardOn ? "rgba(168,85,247,0.12)" : "rgba(255,255,255,0.05)",
-            border: `2px solid ${guardOn ? "rgba(168,85,247,0.4)" : "rgba(255,255,255,0.08)"}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: guardOn ? "0 0 40px rgba(168,85,247,0.2)" : "none",
-            transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)",
-          }}>
-            {guardOn
-              ? <Shield size={38} color="#a855f7" />
-              : <ShieldOff size={38} color="rgba(255,255,255,0.25)" />
-            }
+        {/* What Guard does */}
+        <div style={{ background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: "var(--radius)", padding: "12px 14px", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Shield size={15} color="#8b5cf6" />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#8b5cf6" }}>Facebook Profile Guard</span>
           </div>
+          <div style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.7 }}>
+            Profile Guard prevents others from <strong style={{ color: "var(--text)" }}>downloading, sharing, or screenshotting</strong> your profile picture.
+            It adds a blue shield ring around your photo.
+          </div>
+        </div>
 
-          <h3 style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 4 }}>
-            Profile Guard <span style={{ color: guardOn ? "#a855f7" : "rgba(255,255,255,0.25)", transition: "color 0.3s" }}>{guardOn ? "ON" : "OFF"}</span>
-          </h3>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 22, lineHeight: 1.6 }}>
-            {guardOn ? "Your profile photo will be protected from unauthorized access" : "Profile photo protection will be removed"}
-          </p>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: !guardOn ? "#fff" : "rgba(255,255,255,0.25)", transition: "color 0.3s" }}>OFF</span>
-            <button onClick={() => setGuardOn(g => !g)} style={{
-              width: 64, height: 34, borderRadius: 17, flexShrink: 0,
-              background: guardOn ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(255,255,255,0.1)",
-              border: `1.5px solid ${guardOn ? "rgba(168,85,247,0.5)" : "rgba(255,255,255,0.12)"}`,
-              cursor: "pointer", position: "relative", transition: "all 0.3s",
-              boxShadow: guardOn ? "0 4px 20px rgba(168,85,247,0.4)" : "none",
-            }}>
-              <div style={{
-                position: "absolute", top: 4, width: 24, height: 24, borderRadius: "50%",
-                background: "#fff", left: guardOn ? 35 : 4, transition: "left 0.3s cubic-bezier(0.16,1,0.3,1)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-              }} />
+        {/* Toggle */}
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "14px", marginBottom: 14, boxShadow: "var(--shadow-card)" }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", marginBottom: 10, letterSpacing: "0.08em" }}>ACTION</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setGuardOn(true)}
+              style={{
+                flex: 1, padding: "12px 8px", borderRadius: "var(--radius-sm)",
+                border: `2px solid ${guardOn ? "#8b5cf6" : "var(--border)"}`,
+                background: guardOn ? "rgba(139,92,246,0.1)" : "var(--bg)",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                cursor: "pointer", transition: "all 0.15s", color: "var(--text)", fontFamily: "inherit",
+              }}
+            >
+              <Shield size={22} color={guardOn ? "#8b5cf6" : "var(--text3)"} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: guardOn ? "#8b5cf6" : "var(--text3)" }}>Enable</span>
+              <span style={{ fontSize: 10, color: "var(--text3)" }}>Turn on guard</span>
             </button>
-            <span style={{ fontSize: 12, fontWeight: 600, color: guardOn ? "#c084fc" : "rgba(255,255,255,0.25)", transition: "color 0.3s" }}>ON</span>
+            <button
+              onClick={() => setGuardOn(false)}
+              style={{
+                flex: 1, padding: "12px 8px", borderRadius: "var(--radius-sm)",
+                border: `2px solid ${!guardOn ? "#e41c2e" : "var(--border)"}`,
+                background: !guardOn ? "rgba(228,28,46,0.08)" : "var(--bg)",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                cursor: "pointer", transition: "all 0.15s", color: "var(--text)", fontFamily: "inherit",
+              }}
+            >
+              <ShieldOff size={22} color={!guardOn ? "#e41c2e" : "var(--text3)"} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: !guardOn ? "#e41c2e" : "var(--text3)" }}>Disable</span>
+              <span style={{ fontSize: 10, color: "var(--text3)" }}>Remove guard</span>
+            </button>
           </div>
         </div>
 
-        {/* Features grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-          {[
-            { Icon: Camera,       label: "Blocks downloads",        color: "#a855f7", bg: "rgba(168,85,247,0.1)" },
-            { Icon: Shield,       label: "Screenshot protection",   color: "#6366f1", bg: "rgba(99,102,241,0.1)" },
-            { Icon: Eye,          label: "Controls visibility",     color: "#3b82f6", bg: "rgba(59,130,246,0.1)" },
-            { Icon: Lock,         label: "FB official feature",     color: "#22c55e", bg: "rgba(34,197,94,0.1)" },
-          ].map(({ Icon, label, color, bg }) => (
-            <div key={label} className="lara-card" style={{ padding: "11px 13px", display: "flex", alignItems: "center", gap: 9 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Icon size={15} color={color} />
-              </div>
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.4 }}>{label}</span>
-            </div>
-          ))}
-        </div>
+        {/* Status */}
+        {status !== "idle" && (
+          <div className={`result-box ${status === "success" ? "success" : "error"}`}>
+            {status === "success"
+              ? <CheckCircle2 size={14} style={{ display: "inline", marginRight: 6 }} />
+              : <XCircle size={14} style={{ display: "inline", marginRight: 6 }} />
+            }
+            {modal?.message.split("\n").map((line, i) => (
+              <span key={i}>{line}<br /></span>
+            ))}
+          </div>
+        )}
 
-        <LogWindow logs={logs} />
-
-        <button className="lara-btn" style={{
-          marginTop: 16,
-          background: guardOn ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "linear-gradient(135deg,#374151,#6b7280)",
-          boxShadow: guardOn ? "0 8px 30px rgba(168,85,247,0.3)" : "none",
-        }} onClick={handleGuard} disabled={loading}>
+        {/* Run button */}
+        <button
+          className="lara-btn lara-btn-primary"
+          style={{ marginBottom: 14, background: guardOn ? "#8b5cf6" : "#e41c2e", borderRadius: "var(--radius-sm)" }}
+          onClick={handleGuard}
+          disabled={loading}
+        >
           {loading
-            ? <><span className="spin" /> Processing...</>
-            : guardOn
-              ? <><Shield size={16} /> Enable Profile Guard</>
-              : <><ShieldOff size={16} /> Disable Profile Guard</>
+            ? <><span className="spin" /> {guardOn ? "Enabling..." : "Disabling..."}</>
+            : <>{guardOn ? <Shield size={16} /> : <ShieldOff size={16} />} {guardOn ? "Enable Profile Guard" : "Disable Profile Guard"}</>
           }
         </button>
 
-        <div className="lara-card" style={{ marginTop: 12, padding: "11px 14px", display: "flex", gap: 9, alignItems: "flex-start" }}>
-          <AlertCircle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.7 }}>
-            Profile Guard adds a frame to your profile photo and restricts others from downloading or sharing it. Requires a fresh, valid cookie.
+        {/* Logs */}
+        {logs.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", marginBottom: 6, letterSpacing: "0.08em" }}>DEBUG LOG</p>
+            <LogWindow logs={logs} />
+          </div>
+        )}
+
+        {/* Info box — manual fallback */}
+        <div style={{ background: "rgba(24,119,242,0.06)", border: "1px solid rgba(24,119,242,0.2)", borderRadius: "var(--radius)", padding: "12px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+            <Info size={14} color="var(--primary)" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Manual Backup Method</span>
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.7 }}>
+            If the auto method fails (Facebook blocks API access):
+          </p>
+          <ol style={{ paddingLeft: 16, fontSize: 12, color: "var(--text2)", lineHeight: 2.1, marginTop: 6 }}>
+            <li>Open <strong style={{ color: "var(--text)" }}>Facebook</strong> app on phone</li>
+            <li>Go to your profile → tap your photo</li>
+            <li>Tap <strong style={{ color: "var(--text)" }}>⋯</strong> (3 dots) → <strong style={{ color: "var(--text)" }}>Turn on Profile Guard</strong></li>
+          </ol>
+        </div>
+
+        {/* API methods note */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 7, marginTop: 12, padding: "10px 12px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
+          <AlertCircle size={13} color="var(--text3)" style={{ flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 11, color: "var(--text3)", lineHeight: 1.6 }}>
+            Tries 9 different API methods including mbasic forms, GraphQL, AJAX endpoints, Graph API token, and photo page scraping. Facebook frequently changes these endpoints.
           </p>
         </div>
       </div>

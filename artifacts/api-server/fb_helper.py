@@ -1405,11 +1405,144 @@ def do_guard(cookie: str, enable: bool = True) -> dict:
             except Exception:
                 pass
 
+    # ── Method 6: AJAX profile-picture-guard endpoint (classic) ─────────────
+    try:
+        ajax_payloads = [
+            {"action": "enable" if enable else "disable"},
+            {"profile_guard": "1" if enable else "0"},
+            {"enabled": "1" if enable else "0"},
+        ]
+        for payload in ajax_payloads:
+            payload.update({"fb_dtsg": fb_dtsg, "__user": uid, "__a": "1", "lsd": lsd or ""})
+            for ep in [
+                "https://www.facebook.com/ajax/privacy/profile_picture_guard.php",
+                "https://www.facebook.com/privacy/ajax/profile_picture_guard/",
+                "https://www.facebook.com/ajax/profile_guard.php",
+            ]:
+                try:
+                    r6 = s.post(ep, data=payload, timeout=9,
+                                headers={"X-Requested-With": "XMLHttpRequest",
+                                         "Content-Type": "application/x-www-form-urlencoded"})
+                    logs.append(f"[DEBUG] AJAX guard {ep.split('/')[-1]}: {r6.status_code} {r6.text[:60]}")
+                    if r6.status_code == 200 and "error" not in r6.text.lower()[:50] and len(r6.text) > 5:
+                        logs.append("[OK] Guard set via AJAX endpoint ✓")
+                        msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                        return {"ok": True, "success": True, "message": msg, "logs": logs}
+                except Exception:
+                    pass
+    except Exception as e:
+        logs.append(f"[WARN] AJAX guard: {e}")
+
+    # ── Method 7: Graph API with access token ────────────────────────────────
+    if not access_token:
+        # Try to get a token using the EAAG approach
+        try:
+            from fb_helper import do_token  # noqa: F401
+            tok_res = do_token(cookie)
+            access_token = tok_res.get("token", "")
+            if access_token:
+                logs.append(f"[INFO] Obtained access token for Graph API")
+        except Exception:
+            pass
+
+    if access_token:
+        try:
+            for api_version in ["v18.0", "v17.0", "v19.0"]:
+                for field_name in ["profile_guard_enabled", "profile_guard"]:
+                    r7 = s.post(
+                        f"https://graph.facebook.com/{api_version}/{uid}",
+                        data={"access_token": access_token, field_name: "1" if enable else "0"},
+                        timeout=10,
+                    )
+                    d7 = {}
+                    try: d7 = r7.json()
+                    except Exception: pass
+                    logs.append(f"[DEBUG] Graph API {api_version}/{field_name}: {d7}")
+                    if d7.get("success") or d7.get("id") or d7.get(field_name):
+                        logs.append("[OK] Guard set via Graph API ✓")
+                        msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                        return {"ok": True, "success": True, "message": msg, "logs": logs}
+        except Exception as e:
+            logs.append(f"[WARN] Graph API guard: {e}")
+
+    # ── Method 8: mbasic photo page — navigate to profile pic, find guard link ──
+    if photo_id:
+        try:
+            photo_urls = [
+                f"https://mbasic.facebook.com/photo.php?fbid={photo_id}",
+                f"https://mbasic.facebook.com/photo/{photo_id}/",
+                f"https://mbasic.facebook.com/{uid}/photos/{photo_id}/",
+            ]
+            for purl in photo_urls:
+                try:
+                    rphoto = sm.get(purl, timeout=12)
+                    # Look for guard/privacy links in the page
+                    guard_links = re.findall(r'href="([^"]*(?:guard|privacy)[^"]*)"', rphoto.text, re.I)
+                    logs.append(f"[DEBUG] Photo page guard links found: {len(guard_links)}")
+                    for gl in guard_links[:4]:
+                        gl = gl.replace("&amp;", "&")
+                        if not gl.startswith("http"):
+                            gl = "https://mbasic.facebook.com" + gl
+                        try:
+                            rg2 = sm.get(gl, timeout=12)
+                            forms_ph = re.findall(r'<form[^>]+action="([^"]+)"[^>]*>(.*?)</form>', rg2.text, re.S)
+                            for furl2, fbody2 in forms_ph[:3]:
+                                hidden2 = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', fbody2))
+                                hidden2.update({"fb_dtsg": fb_dtsg, "__user": uid})
+                                act2 = furl2.replace("&amp;", "&")
+                                if not act2.startswith("http"):
+                                    act2 = "https://mbasic.facebook.com" + act2
+                                rp3 = sm.post(act2, data=hidden2, timeout=12)
+                                if rp3.status_code in (200, 302):
+                                    if "guard" in rp3.text.lower() or "success" in rp3.text.lower() or rp3.status_code == 302:
+                                        logs.append("[OK] Guard set via photo page ✓")
+                                        msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                                        return {"ok": True, "success": True, "message": msg, "logs": logs}
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception as e:
+            logs.append(f"[WARN] Photo page guard: {e}")
+
+    # ── Method 9: m.facebook.com privacy settings page ───────────────────────
+    try:
+        priv_urls = [
+            "https://m.facebook.com/settings/privacy/",
+            "https://m.facebook.com/privacy/touch/profile_picture_guard/",
+            f"https://m.facebook.com/profile.php?id={uid}&sk=info",
+        ]
+        for purl in priv_urls:
+            try:
+                rpriv = sm.get(purl, timeout=12, headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/123 Mobile Safari/537.36"})
+                forms_priv = re.findall(r'<form[^>]+action="([^"]+)"[^>]*>(.*?)</form>', rpriv.text, re.S)
+                for furl_p, fbody_p in forms_priv:
+                    if any(k in furl_p.lower() or k in fbody_p.lower() for k in ["guard", "profile_picture", "privacy"]):
+                        hidden_p = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', fbody_p))
+                        hidden_p.update({"fb_dtsg": fb_dtsg, "__user": uid})
+                        act_p = furl_p.replace("&amp;", "&")
+                        if not act_p.startswith("http"):
+                            act_p = "https://m.facebook.com" + act_p
+                        rpp = sm.post(act_p, data=hidden_p, timeout=12)
+                        logs.append(f"[DEBUG] m.fb privacy form → {rpp.status_code}")
+                        if rpp.status_code in (200, 302):
+                            logs.append("[OK] Guard set via m.facebook.com privacy ✓")
+                            msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                            return {"ok": True, "success": True, "message": msg, "logs": logs}
+            except Exception:
+                pass
+    except Exception as e:
+        logs.append(f"[WARN] m.fb privacy guard: {e}")
+
     return {
         "ok": True, "success": False,
         "message": (
-            "❌ Guard API unavailable — Facebook removed all public endpoints for this feature.\n"
-            "➡ Manual: Open Facebook → Profile → Tap your photo → ⋯ → Turn on Profile Guard"
+            "❌ Guard API unavailable — Facebook has restricted all automated endpoints.\n"
+            "➡ Manual steps:\n"
+            "  1. Open Facebook app on your phone\n"
+            "  2. Tap your profile picture\n"
+            "  3. Tap '...' (3 dots) → 'Turn on Profile Guard'\n"
+            "  OR: facebook.com → Profile → tap profile photo → '...' → Turn on Profile Guard"
         ),
         "logs": logs,
     }

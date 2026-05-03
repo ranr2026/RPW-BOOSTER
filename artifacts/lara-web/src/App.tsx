@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Menu, Zap, Sun, Moon } from "lucide-react";
+import { Menu, Sun, Moon } from "lucide-react";
 import LoginPage from "@/pages/LoginPage";
 import PanelPage from "@/pages/PanelPage";
 import ReactPage from "@/pages/ReactPage";
@@ -22,56 +22,63 @@ export interface Profile {
 
 export type Tool = "panel" | "react" | "share" | "comment" | "token" | "guard";
 
+const SESSION_KEY = "rpw_session_v2";
+const THEME_KEY   = "rpw_theme";
+
+function loadSession(): Profile | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const p: Profile = JSON.parse(raw);
+    if (p?.uid && p?.cookie) return p;
+  } catch {}
+  return null;
+}
+
 function ParticleCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
     let animId: number;
-    const particles: { x: number; y: number; r: number; vx: number; vy: number; alpha: number; color: string }[] = [];
-    const colors = ["rgba(139,92,246,", "rgba(236,72,153,", "rgba(99,102,241,", "rgba(59,130,246,"];
-    function resize() { canvas!.width = window.innerWidth; canvas!.height = window.innerHeight; }
-    resize();
-    window.addEventListener("resize", resize);
-    for (let i = 0; i < 50; i++) {
-      particles.push({ x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight, r: Math.random() * 1.8 + 0.4, vx: (Math.random() - 0.5) * 0.22, vy: (Math.random() - 0.5) * 0.22, alpha: Math.random() * 0.35 + 0.05, color: colors[Math.floor(Math.random() * colors.length)] });
-    }
-    function draw() {
-      ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
-      const W = canvas!.width, H = canvas!.height;
-      const g1 = ctx!.createRadialGradient(W * 0.2, H * 0.1, 0, W * 0.2, H * 0.1, W * 0.55);
-      g1.addColorStop(0, "rgba(99,102,241,0.06)"); g1.addColorStop(1, "rgba(0,0,0,0)");
-      ctx!.fillStyle = g1; ctx!.fillRect(0, 0, W, H);
-      const g2 = ctx!.createRadialGradient(W * 0.85, H * 0.88, 0, W * 0.85, H * 0.88, W * 0.4);
-      g2.addColorStop(0, "rgba(236,72,153,0.04)"); g2.addColorStop(1, "rgba(0,0,0,0)");
-      ctx!.fillStyle = g2; ctx!.fillRect(0, 0, W, H);
-      particles.forEach(p => {
-        p.x += p.vx; p.y += p.vy;
-        if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
-        if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
-        ctx!.beginPath(); ctx!.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx!.fillStyle = p.color + p.alpha + ")"; ctx!.fill();
-      });
-      animId = requestAnimationFrame(draw);
+    const pts: { x:number; y:number; r:number; vx:number; vy:number; a:number; c:string }[] = [];
+    const cols = ["rgba(35,116,225,","rgba(66,183,42,","rgba(24,119,242,"];
+    function resize(){ canvas!.width=window.innerWidth; canvas!.height=window.innerHeight; }
+    resize(); window.addEventListener("resize",resize);
+    for(let i=0;i<45;i++) pts.push({x:Math.random()*window.innerWidth,y:Math.random()*window.innerHeight,r:Math.random()*1.6+0.3,vx:(Math.random()-.5)*.2,vy:(Math.random()-.5)*.2,a:Math.random()*.3+.04,c:cols[Math.floor(Math.random()*cols.length)]});
+    function draw(){
+      ctx!.clearRect(0,0,canvas!.width,canvas!.height);
+      pts.forEach(p=>{p.x+=p.vx;p.y+=p.vy;if(p.x<0)p.x=canvas!.width;if(p.x>canvas!.width)p.x=0;if(p.y<0)p.y=canvas!.height;if(p.y>canvas!.height)p.y=0;ctx!.beginPath();ctx!.arc(p.x,p.y,p.r,0,Math.PI*2);ctx!.fillStyle=p.c+p.a+")";ctx!.fill();});
+      animId=requestAnimationFrame(draw);
     }
     draw();
-    return () => { cancelAnimationFrame(animId); window.removeEventListener("resize", resize); };
-  }, []);
+    return ()=>{cancelAnimationFrame(animId);window.removeEventListener("resize",resize);};
+  },[]);
   return <canvas ref={canvasRef} id="particle-canvas" />;
 }
 
+/* ── Facebook "f" logo SVG ── */
+function FbLogo({ size = 16, color = "#fff" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <path d="M24 12.073C24 5.404 18.627 0 12 0S0 5.404 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.791-4.697 4.533-4.697 1.313 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.267h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/>
+    </svg>
+  );
+}
+
 function App() {
-  const [profile,      setProfile]      = useState<Profile | null>(null);
+  const [profile,      setProfile]      = useState<Profile | null>(loadSession);
   const [tool,         setTool]         = useState<Tool>("panel");
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
   const [accountCount, setAccountCount] = useState(0);
-  const [darkMode,     setDarkMode]     = useState(true);
+  const [darkMode,     setDarkMode]     = useState(() => {
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved ? saved === "dark" : true;
+  });
 
-  // Apply dark/light mode to :root
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+    localStorage.setItem(THEME_KEY, darkMode ? "dark" : "light");
   }, [darkMode]);
 
   useEffect(() => {
@@ -86,8 +93,10 @@ function App() {
   }
 
   function handleLogin(p: import("@/lib/api").FbProfile, cookie: string) {
-    setProfile({ ...p, cookie });
+    const newProfile: Profile = { ...p, cookie };
+    setProfile(newProfile);
     setTool("panel");
+    localStorage.setItem(SESSION_KEY, JSON.stringify(newProfile));
     void fetchAccountCount();
   }
 
@@ -95,6 +104,7 @@ function App() {
     setProfile(null);
     setTool("panel");
     setSidebarOpen(false);
+    localStorage.removeItem(SESSION_KEY);
   }
 
   const renderContent = () => {
@@ -121,16 +131,16 @@ function App() {
           <LoginPage onLogin={handleLogin} />
         ) : (
           <>
-            {/* ── Monokai Navbar ── */}
+            {/* ── Facebook Navbar ── */}
             <nav className="rpw-navbar">
               <button className="rpw-menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Menu">
-                <Menu size={17} />
+                <Menu size={18} />
               </button>
 
               <div className="rpw-navbar-center">
                 <div className="rpw-navbar-brand">
                   <div className="rpw-brand-logo">
-                    <Zap size={14} color="#fff" strokeWidth={2.5} />
+                    <FbLogo size={16} color="#fff" />
                   </div>
                   RPW BOOSTER
                 </div>
@@ -138,14 +148,13 @@ function App() {
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {/* Dark / Light mode toggle */}
                 <button
                   className="theme-toggle-btn"
                   onClick={() => setDarkMode(d => !d)}
-                  aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-                  title={darkMode ? "Light mode" : "Dark mode"}
+                  aria-label={darkMode ? "Light mode" : "Dark mode"}
+                  title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
                 >
-                  {darkMode ? <Sun size={15} /> : <Moon size={15} />}
+                  {darkMode ? <Sun size={16} /> : <Moon size={16} />}
                 </button>
 
                 <button className="rpw-avatar-btn" onClick={() => setSidebarOpen(true)} aria-label="Profile">
@@ -153,7 +162,8 @@ function App() {
                     src={profile.avatar}
                     alt={displayName}
                     onError={e => {
-                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=7c3aed&color=fff&size=64`;
+                      (e.target as HTMLImageElement).src =
+                        `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=1877F2&color=fff&size=64`;
                     }}
                   />
                 </button>

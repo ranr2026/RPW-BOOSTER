@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Zap, ThumbsUp, Share2, MessageSquare, Shield, LogIn, ChevronDown, ChevronUp, KeyRound } from "lucide-react";
+import { ThumbsUp, Share2, MessageSquare, Shield, LogIn, ChevronDown, ChevronUp, KeyRound, Zap } from "lucide-react";
 import { api, type FbProfile } from "@/lib/api";
 
 interface Props { onLogin: (profile: FbProfile, cookie: string) => void; }
@@ -7,24 +7,35 @@ interface Props { onLogin: (profile: FbProfile, cookie: string) => void; }
 const FIELDS = ["c_user", "xs", "datr", "fr", "sb"];
 
 const FEATURES = [
-  { Icon: ThumbsUp,      label: "Auto React",    desc: "7 reaction types · 20 accounts",  color: "#ef4444", bg: "rgba(239,68,68,0.1)" },
-  { Icon: Share2,        label: "Spam Share",     desc: "Multi shares · Up to 20×",        color: "#3b82f6", bg: "rgba(59,130,246,0.1)" },
-  { Icon: MessageSquare, label: "Mass Comment",   desc: "Bulk comments · Max 10 each",     color: "#22c55e", bg: "rgba(34,197,94,0.1)" },
-  { Icon: Shield,        label: "Profile Guard",  desc: "Photo protection · Auto-enable",  color: "#a855f7", bg: "rgba(168,85,247,0.1)" },
-  { Icon: KeyRound,      label: "Access Token",   desc: "EAAG extractor · All sessions",   color: "#f59e0b", bg: "rgba(245,158,11,0.1)" },
+  { Icon: ThumbsUp,      label: "Auto React",    desc: "7 types · 20 accounts",    color: "#e41c2e", bg: "rgba(228,28,46,0.1)"   },
+  { Icon: Share2,        label: "Spam Share",     desc: "Multi shares · Up to 20×", color: "#1877F2", bg: "rgba(24,119,242,0.1)"  },
+  { Icon: MessageSquare, label: "Mass Comment",   desc: "Bulk · Max 10 each",       color: "#42b72a", bg: "rgba(66,183,42,0.1)"   },
+  { Icon: Shield,        label: "Profile Guard",  desc: "Photo protection",          color: "#8b5cf6", bg: "rgba(139,92,246,0.1)"  },
+  { Icon: KeyRound,      label: "Access Token",   desc: "EAAG extractor",            color: "#f5c518", bg: "rgba(245,197,24,0.1)"  },
+  { Icon: Zap,           label: "Bulk Boost",     desc: "20 accounts · 10-min CD",  color: "#1877F2", bg: "rgba(24,119,242,0.1)"  },
 ];
 
+function FbWordmark() {
+  return (
+    <svg height="36" viewBox="0 0 327 65" fill="var(--primary)">
+      <path clipRule="evenodd" d="M17.0833 0.5H309.917C319.006 0.5 326.417 7.91068 326.417 17V48C326.417 57.0893 319.006 64.5 309.917 64.5H17.0833C7.994 64.5 0.583328 57.0893 0.583328 48V17C0.583328 7.91068 7.994 0.5 17.0833 0.5Z" fill="none"/>
+      <path d="M52.6 32.5c0-11.3-9.2-20.5-20.5-20.5S11.6 21.2 11.6 32.5c0 10.2 7.5 18.7 17.3 20.2V38.2h-5.2v-5.7h5.2v-4.4c0-5.2 3.1-8 7.8-8 2.3 0 4.6.4 4.6.4v5h-2.6c-2.6 0-3.4 1.6-3.4 3.2v3.8h5.7l-.9 5.7h-4.8V52.7C45.1 51.2 52.6 42.7 52.6 32.5z" fill="var(--primary)"/>
+      <text x="58" y="48" fontFamily="-apple-system,BlinkMacSystemFont,Helvetica Neue,Helvetica,Arial,sans-serif" fontWeight="700" fontSize="36" fill="var(--primary)">RPW Booster</text>
+    </svg>
+  );
+}
+
 export default function LoginPage({ onLogin }: Props) {
-  const [cookie,     setCookie]     = useState("");
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState("");
-  const [showGuide,  setShowGuide]  = useState(false);
+  const [cookie,    setCookie]    = useState("");
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState("");
+  const [showGuide, setShowGuide] = useState(false);
 
   async function handleLogin() {
     const c = cookie.trim();
-    if (!c) { setError("Paste your Facebook cookie first"); return; }
+    if (!c) { setError("Please paste your Facebook cookie first."); return; }
     if (!c.includes("c_user") || !c.includes("xs")) {
-      setError("Cookie must include c_user and xs fields"); return;
+      setError("Cookie must include c_user and xs fields."); return;
     }
     setError(""); setLoading(true);
     try {
@@ -32,77 +43,84 @@ export default function LoginPage({ onLogin }: Props) {
       if (!profile.uid) { setError("Could not extract UID — paste the full cookie from facebook.com"); return; }
       onLogin(profile, c);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg || "Login failed — check your cookie");
-    } finally {
-      setLoading(false);
-    }
+      setError(err instanceof Error ? err.message : "Login failed — check your cookie");
+    } finally { setLoading(false); }
   }
 
   const fieldsDetected = FIELDS.filter(f => cookie.includes(f));
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "28px 20px" }}>
-      <div style={{ width: "100%", maxWidth: 420 }} className="slide-up">
+    <div style={{ minHeight: "100vh", background: "var(--bg)", paddingBottom: 32 }}>
 
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ position: "relative", display: "inline-block", marginBottom: 16 }}>
-            <div style={{
-              width: 88, height: 88, borderRadius: 24, margin: "0 auto",
-              background: "linear-gradient(135deg, #6d28d9 0%, #7c3aed 50%, #ec4899 100%)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 12px 48px rgba(109,40,217,0.55), 0 0 0 1px rgba(255,255,255,0.05)",
-            }}>
-              <Zap size={42} color="#fff" strokeWidth={2.5} />
-            </div>
-            <div style={{
-              position: "absolute", inset: -12, borderRadius: 36,
-              background: "radial-gradient(ellipse at center, rgba(109,40,217,0.25) 0%, transparent 70%)",
-              zIndex: -1,
-            }} />
-          </div>
-          <h1 style={{ fontSize: 28, fontWeight: 900, color: "#fff", letterSpacing: "0.06em", marginBottom: 4 }}>
-            RPW BOOSTER
-          </h1>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 14px", borderRadius: 20, background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.25)" }}>
-            <span style={{ fontSize: 10, color: "#c084fc", fontWeight: 700, letterSpacing: "0.1em" }}>FACEBOOK MULTI-TOOL SUITE v1.5.1</span>
-          </div>
+      {/* ── Facebook-style header ── */}
+      <div style={{
+        background: "var(--card)", borderBottom: "1px solid var(--border)",
+        padding: "28px 20px 22px", textAlign: "center",
+        boxShadow: "var(--shadow-card)",
+      }}>
+        {/* Facebook "f" icon */}
+        <div style={{
+          width: 72, height: 72, borderRadius: "50%",
+          background: "var(--primary)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 14px",
+          boxShadow: "0 4px 20px rgba(24,119,242,0.35)",
+        }}>
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="#fff">
+            <path d="M24 12.073C24 5.404 18.627 0 12 0S0 5.404 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.791-4.697 4.533-4.697 1.313 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.267h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/>
+          </svg>
         </div>
+        <h1 style={{ fontSize: 26, fontWeight: 900, color: "var(--text)", marginBottom: 4, letterSpacing: "-0.01em" }}>
+          RPW BOOSTER
+        </h1>
+        <p style={{ fontSize: 13, color: "var(--text2)", fontWeight: 500 }}>
+          Facebook Multi-Tool Suite · v1.5.1
+        </p>
+      </div>
 
-        {/* Login card */}
-        <div className="lara-card" style={{ padding: 20, marginBottom: 12 }}>
+      <div style={{ padding: "16px 16px 0", maxWidth: 480, margin: "0 auto" }}>
+
+        {/* ── Login card ── */}
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "16px", marginBottom: 12, boxShadow: "var(--shadow-card)" }}>
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: "0.1em" }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.08em" }}>
               FACEBOOK COOKIE
             </p>
-            <button onClick={() => setShowGuide(g => !g)} style={{ fontSize: 11, color: "#a855f7", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontFamily: "inherit" }}>
+            <button
+              onClick={() => setShowGuide(g => !g)}
+              style={{ fontSize: 12, color: "var(--primary)", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontFamily: "inherit", fontWeight: 600 }}
+            >
               {showGuide ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               {showGuide ? "Hide guide" : "How to get?"}
             </button>
           </div>
 
           {showGuide && (
-            <div style={{ background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: 12, padding: 14, marginBottom: 12 }}>
-              <p style={{ fontSize: 12, color: "#c084fc", fontWeight: 700, marginBottom: 8 }}>Get your Facebook cookie:</p>
-              <ol style={{ paddingLeft: 16, fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 2.2 }}>
-                <li>Open <strong style={{ color: "#fff" }}>Facebook.com</strong> on PC browser (Chrome)</li>
-                <li>Press <strong style={{ color: "#fff" }}>F12</strong> → Application → Cookies</li>
-                <li>Select <strong style={{ color: "#fff" }}>https://www.facebook.com</strong></li>
-                <li>Install <strong style={{ color: "#fff" }}>Cookie-Editor</strong> extension → Export → Header String</li>
+            <div style={{ background: "rgba(24,119,242,0.06)", border: "1px solid rgba(24,119,242,0.18)", borderRadius: "var(--radius-sm)", padding: "12px 14px", marginBottom: 12 }}>
+              <p style={{ fontSize: 12, color: "var(--primary)", fontWeight: 700, marginBottom: 8 }}>Get your Facebook cookie:</p>
+              <ol style={{ paddingLeft: 16, fontSize: 12, color: "var(--text2)", lineHeight: 2.1 }}>
+                <li>Open <strong style={{ color: "var(--text)" }}>Facebook.com</strong> on PC (Chrome)</li>
+                <li>Press <strong style={{ color: "var(--text)" }}>F12</strong> → Application → Cookies</li>
+                <li>Select <strong style={{ color: "var(--text)" }}>https://www.facebook.com</strong></li>
+                <li>Install <strong style={{ color: "var(--text)" }}>Cookie-Editor</strong> extension → Export → Header String</li>
               </ol>
-              <div style={{ marginTop: 10, padding: "7px 11px", background: "rgba(0,0,0,0.3)", borderRadius: 8, fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.25)", lineHeight: 1.8 }}>
+              <div style={{ marginTop: 8, padding: "7px 11px", background: "var(--bg)", borderRadius: "var(--radius-sm)", fontFamily: "monospace", fontSize: 10, color: "var(--text3)", lineHeight: 1.7, border: "1px solid var(--border)" }}>
                 c_user=123456; xs=abc:xyz:2; datr=xxx; fr=yyy; sb=zzz
               </div>
             </div>
           )}
 
-          <textarea className="lara-input" rows={5} value={cookie}
+          <textarea
+            className="lara-input"
+            rows={5}
+            value={cookie}
             onChange={e => { setCookie(e.target.value); setError(""); }}
             placeholder={"Paste your Facebook cookie here...\n\nRequired: c_user + xs"}
-            style={{ fontFamily: "monospace", fontSize: 11, lineHeight: 1.7 }} />
+            style={{ fontFamily: "monospace", fontSize: 11, lineHeight: 1.7 }}
+          />
 
-          {/* Field badges */}
+          {/* Field detection badges */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 10 }}>
             {FIELDS.map(f => {
               const found = cookie.includes(f);
@@ -113,55 +131,58 @@ export default function LoginPage({ onLogin }: Props) {
               );
             })}
             {fieldsDetected.length > 0 && (
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", alignSelf: "center", marginLeft: 3 }}>
-                {fieldsDetected.length}/{FIELDS.length} fields
+              <span style={{ fontSize: 10, color: "var(--text3)", alignSelf: "center", marginLeft: 2 }}>
+                {fieldsDetected.length}/{FIELDS.length} detected
               </span>
             )}
           </div>
 
           {error && (
-            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.22)", borderRadius: 10, fontSize: 12, color: "#f87171" }}>
+            <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(228,28,46,0.07)", border: "1px solid rgba(228,28,46,0.2)", borderRadius: "var(--radius-sm)", fontSize: 13, color: "var(--red)" }}>
               {error}
             </div>
           )}
 
-          <button className="lara-btn lara-btn-primary" style={{ marginTop: 14, boxShadow: loading ? "none" : "0 8px 30px rgba(124,58,237,0.35)" }} onClick={handleLogin} disabled={loading}>
+          <button
+            className="lara-btn lara-btn-primary"
+            style={{ marginTop: 14, borderRadius: "var(--radius-sm)", fontSize: 16 }}
+            onClick={handleLogin}
+            disabled={loading}
+          >
             {loading
               ? <><span className="spin" /> Verifying cookie...</>
-              : <><LogIn size={16} /> Login with Cookie</>
+              : <><LogIn size={17} /> Login with Cookie</>
             }
           </button>
 
-          <p style={{ color: "rgba(255,255,255,0.15)", fontSize: 10, marginTop: 10, textAlign: "center", lineHeight: 1.6 }}>
+          <p style={{ color: "var(--text3)", fontSize: 11, marginTop: 10, textAlign: "center", lineHeight: 1.6 }}>
             Cookie is used locally for boosting operations · No data shared externally
           </p>
         </div>
 
-        {/* Feature grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+        {/* ── Divider ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "16px 0 12px" }}>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          <span style={{ fontSize: 12, color: "var(--text3)", fontWeight: 600 }}>FEATURES</span>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        </div>
+
+        {/* ── Feature grid ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
           {FEATURES.map(({ Icon, label, desc, color, bg }) => (
-            <div key={label} className="lara-card" style={{ padding: 13, display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: bg, border: `1px solid ${color}28`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div key={label} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "12px 12px", display: "flex", alignItems: "center", gap: 10, boxShadow: "var(--shadow-card)" }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: bg, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${color}25` }}>
                 <Icon size={17} color={color} />
               </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}>{label}</div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 1, lineHeight: 1.4 }}>{desc}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+                <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
               </div>
             </div>
           ))}
-          <div className="lara-card" style={{ padding: 13, display: "flex", alignItems: "center", gap: 10, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.06)" }}>
-            <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(139,92,246,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Zap size={17} color="#8b5cf6" />
-            </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#a855f7" }}>Bulk Boost</div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 1, lineHeight: 1.4 }}>20 accounts · 10-min cooldown</div>
-            </div>
-          </div>
         </div>
 
-        <p style={{ textAlign: "center", color: "rgba(255,255,255,0.08)", fontSize: 10, letterSpacing: "0.06em" }}>
+        <p style={{ textAlign: "center", color: "var(--text3)", fontSize: 11, letterSpacing: "0.04em" }}>
           RPW BOOSTER · Philippines RPW & RA Tool
         </p>
       </div>
