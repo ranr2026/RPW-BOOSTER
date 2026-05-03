@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+* {
+  margin: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+  --lara-bg: #101010;
+  --lara-bg2: #1F2129;
+  --lara-card: #1a1a22;
+  --lara-card2: #22232d;
+  --lara-purple: #7c3aed;
+  --lara-purple2: #6d28d9;
+  --lara-pink: #db2777;
+  --lara-accent: #a855f7;
+  --lara-text: #ffffff;
+  --lara-muted: #BBBCBE;
+  --lara-border: rgba(255,255,255,0.08);
+  --lara-success: #22c55e;
+  --lara-error: #ef4444;
+  --lara-warn: #f59e0b;
+}
+
+body {
+  background: linear-gradient(135deg, var(--lara-bg) 0%, var(--lara-bg2) 100%);
+  min-height: 100vh;
+  color: var(--lara-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--lara-border);
+  border-radius: 2px;
+}
+
+input, textarea {
+  outline: none;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+.lara-gradient {
+  background: linear-gradient(135deg, var(--lara-purple) 0%, var(--lara-pink) 100%);
+}
+
+.lara-card {
+  background: var(--lara-card);
+  border: 1px solid var(--lara-border);
+  border-radius: 16px;
+}
+
+.lara-input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--lara-border);
+  border-radius: 12px;
+  color: var(--lara-text);
+  padding: 12px 16px;
+  font-size: 14px;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+
+.lara-input:focus {
+  border-color: var(--lara-purple);
+  background: rgba(124, 58, 237, 0.08);
+}
+
+.lara-input::placeholder {
+  color: var(--lara-muted);
+}
+
+.lara-btn {
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  user-select: none;
+}
+
+.lara-btn:active {
+  transform: scale(0.97);
+}
+
+.lara-btn-primary {
+  background: linear-gradient(135deg, var(--lara-purple) 0%, var(--lara-pink) 100%);
+  color: white;
+  width: 100%;
+}
+
+.lara-btn-primary:hover {
+  opacity: 0.92;
+}
+
+.lara-btn-secondary {
+  background: rgba(255,255,255,0.08);
+  color: white;
+  border: 1px solid var(--lara-border);
+}
+
+.lara-btn-secondary:hover {
+  background: rgba(255,255,255,0.13);
+}
+
+.lara-btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--lara-error);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.log-line-ok { color: #4ade80; }
+.log-line-fail { color: #f87171; }
+.log-line-warn { color: #fbbf24; }
+.log-line-info { color: #60a5fa; }
+.log-line-debug { color: #a1a1aa; }
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(124,58,237,0.5); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(124,58,237,0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(124,58,237,0); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin { animation: spin 1s linear infinite; }
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-up { animation: slideUp 0.3s ease-out; }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.fade-in { animation: fadeIn 0.25s ease-out; }
+
+.active-press:active { transform: scale(0.95); }
+
+.glow-purple {
+  box-shadow: 0 0 20px rgba(124,58,237,0.3);
+}

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/lara/"
+title = "Lara Web — FB Auto React"
+version = "1.0.0"
+id = "artifacts/lara-web"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/lara/" ]
+localPort = 22751
+
+[services.development]
+run = "pnpm --filter @workspace/lara-web run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/lara-web", "run", "build" ]
+publicDir = "artifacts/lara-web/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22751"
+BASE_PATH = "/lara/"
