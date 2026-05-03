@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/rpw-mobile/"
+title = "RPW BOOSTER Mobile"
+version = "1.0.0"
+id = "artifacts/rpw-mobile"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/rpw-mobile/" ]
+localPort = 24348
+
+[services.development]
+run = "pnpm --filter @workspace/rpw-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/rpw-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/rpw-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "24348"
+BASE_PATH = "/rpw-mobile/"
