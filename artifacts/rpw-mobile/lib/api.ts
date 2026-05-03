@@ -1,4 +1,4 @@
-const BASE = (process.env['EXPO_PUBLIC_API_URL'] ?? 'https://rpw-booster-api.onrender.com') + '/api/fb';
+const BASE = (process.env['EXPO_PUBLIC_API_URL'] ?? 'https://rpw-booster-api.onrender.com/api/fb').replace(/\/+$/, '');
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
