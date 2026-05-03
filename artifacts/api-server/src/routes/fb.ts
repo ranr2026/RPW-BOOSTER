@@ -56,6 +56,17 @@ router.post("/react", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/react/cooldown", async (req: Request, res: Response) => {
+  try {
+    const { postUrl } = req.query as { postUrl?: string };
+    if (!postUrl) return res.json({ onCooldown: false, remainingSec: 0 });
+    const { getReactCooldown } = await import("../lib/facebook.js");
+    return res.json(getReactCooldown(postUrl));
+  } catch {
+    return res.json({ onCooldown: false, remainingSec: 0 });
+  }
+});
+
 router.post("/react/all", async (req: Request, res: Response) => {
   try {
     const { postUrl, reactionType } = req.body as { postUrl: string; reactionType: string };

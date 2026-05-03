@@ -45,6 +45,8 @@ export interface ActionResult {
   succeeded?: number;
   message: string;
   logs?: string[];
+  cooldown?: boolean;
+  cooldownSec?: number;
 }
 
 export interface TokenResult {

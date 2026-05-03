@@ -1170,47 +1170,124 @@ def do_token(cookie: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 # GUARD
 # ══════════════════════════════════════════════════════════════════════════════
-def do_guard(cookie: str) -> dict:
+def do_guard(cookie: str, enable: bool = True) -> dict:
     logs = []
     uid = _uid_from_cookie(cookie)
-    fb_dtsg, uid, _, authenticated, _auth_html = _get_auth(cookie, logs)
-    logs.append(f"[INFO] Enabling profile guard for {uid}")
+    fb_dtsg, uid, _, authenticated, auth_html = _get_auth(cookie, logs)
+    action_word = "Enabling" if enable else "Disabling"
+    logs.append(f"[INFO] {action_word} profile guard for {uid}")
     if not fb_dtsg or not authenticated:
         return {"ok": True, "success": False, "message": "❌ Cookie invalid or expired — re-export from facebook.com", "logs": logs}
 
-    # GraphQL profile guard mutation
-    try:
-        s = make_cf_session(cookie)
-        r = s.post("https://www.facebook.com/api/graphql/", data={
-            "fb_dtsg": fb_dtsg,
-            "variables": json.dumps({"input": {
-                "actor_id": uid, "privacy_setting": "PROFILE_GUARD",
-                "value": "1", "client_mutation_id": _rand(),
-            }}),
-            "doc_id": "4847946388580875",
-            "__a": "1", "__user": uid,
-        }, timeout=14)
-        logs.append(f"[DEBUG] Guard GraphQL → {r.status_code}")
-        if r.status_code == 200 and '"errors"' not in r.text:
-            logs.append("[OK] Profile guard enabled via GraphQL ✓")
-            return {"ok": True, "success": True, "message": "✅ Profile guard enabled!", "logs": logs}
-    except Exception as e:
-        logs.append(f"[WARN] GraphQL guard: {e}")
+    s = make_cf_session(cookie)
+    guard_val = "1" if enable else "0"
 
-    # Privacy endpoint
+    # Method 1: Dynamic doc_id scan from settings page
     try:
-        s = make_cf_session(cookie)
-        r = s.post("https://www.facebook.com/privacy/settings/profile_guard/enable/", data={
-            "fb_dtsg": fb_dtsg, "__user": uid, "__a": "1",
-        }, timeout=12)
-        if r.status_code == 200:
-            logs.append("[OK] Profile guard enabled via privacy endpoint ✓")
-            return {"ok": True, "success": True, "message": "✅ Profile guard enabled!", "logs": logs}
+        rset = s.get("https://www.facebook.com/settings?tab=profile", timeout=16)
+        logs.append(f"[INFO] Settings page → {rset.status_code} ({len(rset.text)}B)")
+        if rset.status_code == 200:
+            page = rset.text
+            # Scan for doc_ids near PROFILE_GUARD in page bundle
+            candidates = re.findall(
+                r'"doc_id"\s*:\s*"?(\d{15,19})"?[^}]{0,400}?PROFILE.GUARD', page)
+            if not candidates:
+                candidates = re.findall(
+                    r'PROFILE.GUARD[^}]{0,400}?"doc_id"\s*:\s*"?(\d{15,19})"?', page)
+            if not candidates:
+                # Scan for privacy mutation doc_ids in bundle chunks
+                candidates = re.findall(
+                    r'setPrivacySetting[^}]{0,600}?doc_id[^:]*:\s*"?(\d{15,19})"?', page)
+            logs.append(f"[DEBUG] Scanned candidates: {candidates[:4]}")
+            for doc_id in candidates[:3]:
+                try:
+                    r2 = s.post("https://www.facebook.com/api/graphql/", data={
+                        "fb_dtsg": fb_dtsg,
+                        "variables": json.dumps({"input": {
+                            "actor_id": uid, "privacy_setting": "PROFILE_GUARD",
+                            "value": guard_val, "client_mutation_id": _rand(),
+                        }}),
+                        "doc_id": doc_id, "__a": "1", "__user": uid,
+                    }, timeout=12)
+                    logs.append(f"[DEBUG] Guard doc_id {doc_id} → {r2.status_code}: {r2.text[:80]}")
+                    if r2.status_code == 200 and '"errors"' not in r2.text and len(r2.text) > 30:
+                        logs.append("[OK] Profile guard set via GraphQL (dynamic) ✓")
+                        msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                        return {"ok": True, "success": True, "message": msg, "logs": logs}
+                except Exception as ex:
+                    logs.append(f"[WARN] doc_id {doc_id}: {ex}")
     except Exception as e:
-        logs.append(f"[WARN] Privacy endpoint: {e}")
+        logs.append(f"[WARN] Settings page scan: {e}")
+
+    # Method 2: Privacy-specific REST endpoint
+    for ep_action in (["enable"] if enable else ["disable"]):
+        for base in ["https://www.facebook.com/privacy/settings/profile_guard/",
+                     "https://www.facebook.com/privacy/specific/profile_guard/"]:
+            try:
+                ep = f"{base}{ep_action}/"
+                r = s.post(ep, data={
+                    "fb_dtsg": fb_dtsg, "__user": uid, "__a": "1",
+                    "lsd": re.search(r'"LSD"[^}]*"token"\s*:\s*"([^"]+)"', auth_html or "").group(1)
+                    if auth_html and '"LSD"' in auth_html else "",
+                }, timeout=12)
+                logs.append(f"[DEBUG] Privacy REST {ep} → {r.status_code}: {r.text[:80]}")
+                if r.status_code in (200, 302):
+                    resp = r.text.lower()
+                    if '"error"' not in resp and "not found" not in resp:
+                        logs.append("[OK] Profile guard set via privacy REST ✓")
+                        msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                        return {"ok": True, "success": True, "message": msg, "logs": logs}
+            except Exception as e:
+                logs.append(f"[WARN] Privacy REST: {e}")
+
+    # Method 3: Try alternate mutation variable formats
+    for fmt in [
+        {"profile_guard_enabled": enable},
+        {"enabled": enable, "feature": "PROFILE_GUARD"},
+    ]:
+        for doc_id in ["4134075133319397", "3734556693315868", "6594053617363001"]:
+            try:
+                r = s.post("https://www.facebook.com/api/graphql/", data={
+                    "fb_dtsg": fb_dtsg,
+                    "variables": json.dumps({"input": {**fmt, "actor_id": uid, "client_mutation_id": _rand()}}),
+                    "doc_id": doc_id, "__a": "1", "__user": uid,
+                }, timeout=10)
+                if r.status_code == 200 and '"errors"' not in r.text and "not found" not in r.text and len(r.text) > 30:
+                    logs.append(f"[OK] Guard via alt mutation {doc_id} ✓")
+                    msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                    return {"ok": True, "success": True, "message": msg, "logs": logs}
+            except Exception:
+                pass
+
+    # Method 4: mbasic profile guard via settings form
+    try:
+        sm = make_cf_session(cookie, mobile=True)
+        rm = sm.get("https://mbasic.facebook.com/settings?section=privacy", timeout=14)
+        logs.append(f"[DEBUG] mbasic privacy → {rm.status_code} ({len(rm.text)}B)")
+        if rm.status_code == 200:
+            guard_links = re.findall(r'href="([^"]*(?:guard|profile_guard)[^"]*)"', rm.text, re.I)
+            logs.append(f"[DEBUG] Guard links: {guard_links[:3]}")
+            for link in guard_links[:2]:
+                if not link.startswith("http"):
+                    link = "https://mbasic.facebook.com" + link
+                rg = sm.get(link, timeout=12)
+                forms = re.findall(r'<form[^>]+action="([^"]*)"[^>]*>(.*?)</form>', rg.text, re.S)
+                for furl, fbody in forms[:3]:
+                    hidden = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', fbody))
+                    hidden.setdefault("fb_dtsg", fb_dtsg)
+                    if not furl.startswith("http"):
+                        furl = "https://mbasic.facebook.com" + furl
+                    rp = sm.post(furl.replace("&amp;", "&"), data=hidden, timeout=12)
+                    logs.append(f"[DEBUG] mbasic guard form → {rp.status_code}")
+                    if rp.status_code in (200, 302):
+                        logs.append("[OK] Profile guard set via mbasic form ✓")
+                        msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                        return {"ok": True, "success": True, "message": msg, "logs": logs}
+    except Exception as e:
+        logs.append(f"[WARN] mbasic guard: {e}")
 
     return {"ok": True, "success": False,
-            "message": "❌ Guard failed — enable manually at facebook.com/settings", "logs": logs}
+            "message": "❌ Guard failed — Facebook updated their API. Enable manually at facebook.com → Settings → Profile Picture Guard", "logs": logs}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1218,10 +1295,14 @@ def do_guard(cookie: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def do_react_all(cookies: list, post_url: str, reaction: str) -> dict:
-    """React to a post using every cookie in the provided list (bulk boost)."""
+    """React to a post using every cookie in the provided list (bulk boost, max 20)."""
     logs = []
     rxn = reaction.upper()
     post_id = _post_id(post_url)
+    # Cap at 20 accounts to avoid suspension
+    if len(cookies) > 20:
+        logs.append(f"[INFO] Capping to 20 accounts (had {len(cookies)}) to avoid suspension")
+        cookies = cookies[:20]
     logs.append(f"[INFO] Bulk react: {len(cookies)} accounts, reaction={rxn}, post={post_id}")
 
     success = 0
@@ -1287,8 +1368,12 @@ def do_react_all(cookies: list, post_url: str, reaction: str) -> dict:
 
 
 def do_comment_all(cookies: list, post_url: str, comments: list, count: int) -> dict:
-    """Post comments using every cookie in the provided list (bulk boost)."""
+    """Post comments using every cookie in the provided list (bulk boost, max 10 comments)."""
     logs = []
+    # Cap at 10 comments per account to avoid suspension
+    if count > 10:
+        logs.append(f"[INFO] Capping comments to 10 (was {count}) to avoid suspension")
+        count = 10
     logs.append(f"[INFO] Bulk comment: {len(cookies)} accounts, {count} comments each")
 
     success = 0
@@ -1391,7 +1476,7 @@ def main():
         elif action == "token":
             result = do_token(cookie)
         elif action == "guard":
-            result = do_guard(cookie)
+            result = do_guard(cookie, bool(data.get("enable", True)))
         else:
             result = {"ok": False, "error": f"Unknown action: {action}"}
 

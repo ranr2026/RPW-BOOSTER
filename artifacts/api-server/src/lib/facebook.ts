@@ -186,9 +186,33 @@ export async function getActiveCookies(): Promise<string[]> {
   return rows.map(r => r.cookie);
 }
 
+// ── Cooldown map: postId → last reactAll timestamp (10 min cooldown) ──────────
+const reactCooldownMap = new Map<string, number>();
+const REACT_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+
+export function getReactCooldown(postUrl: string): { onCooldown: boolean; remainingMs: number; remainingSec: number } {
+  const key = postUrl.trim();
+  const last = reactCooldownMap.get(key) ?? 0;
+  const elapsed = Date.now() - last;
+  const remaining = Math.max(0, REACT_COOLDOWN_MS - elapsed);
+  return { onCooldown: remaining > 0, remainingMs: remaining, remainingSec: Math.ceil(remaining / 1000) };
+}
+
 // ── Bulk operations using all saved accounts ──────────────────────────────────
 
-export async function reactAll(postUrl: string, reactionType: string): Promise<FbActionResult> {
+export async function reactAll(postUrl: string, reactionType: string): Promise<FbActionResult & { cooldown?: boolean; cooldownSec?: number }> {
+  const cooldown = getReactCooldown(postUrl);
+  if (cooldown.onCooldown) {
+    return {
+      success: false,
+      cooldown: true,
+      cooldownSec: cooldown.remainingSec,
+      message: `⏳ Cooldown active — wait ${cooldown.remainingSec}s before boosting this post again (10-min protection)`,
+      logs: [`[WARN] Cooldown: ${cooldown.remainingSec}s remaining for this post`],
+      total: 0,
+      succeeded: 0,
+    };
+  }
   const cookies = await getActiveCookies();
   if (!cookies.length) {
     return {
@@ -199,6 +223,8 @@ export async function reactAll(postUrl: string, reactionType: string): Promise<F
       succeeded: 0,
     };
   }
+  // Record cooldown start
+  reactCooldownMap.set(postUrl.trim(), Date.now());
   const result = await callPython({ action: "react_all", cookies, postUrl, reactionType }) as Record<string, unknown>;
   return {
     success: (result.success as boolean) ?? false,

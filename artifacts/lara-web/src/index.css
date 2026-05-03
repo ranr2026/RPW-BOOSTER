@@ -315,8 +315,48 @@ input[type="range"] { width: 100%; accent-color: #8b5cf6; }
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px; border-radius: 12px;
   background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2);
-  margin-bottom: 16px;
+  margin-bottom: 16px; transition: all 0.25s;
 }
+
+/* ── Glow pulse for active status ── */
+@keyframes glowPulse {
+  0%,100% { box-shadow: 0 0 20px rgba(139,92,246,0.2); }
+  50%      { box-shadow: 0 0 40px rgba(139,92,246,0.45); }
+}
+
+/* ── Number counter animation ── */
+@keyframes countUp { from { transform: translateY(8px); opacity:0; } to { transform:none; opacity:1; } }
+.count-animate { animation: countUp 0.4s cubic-bezier(0.16,1,0.3,1); }
+
+/* ── Shimmer loading skeleton ── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%; animation: shimmer 1.4s infinite;
+}
+
+/* ── Gradient border card ── */
+.gradient-border {
+  position: relative; border-radius: 16px;
+}
+.gradient-border::before {
+  content: ""; position: absolute; inset: -1px; border-radius: 17px; z-index: -1;
+  background: linear-gradient(135deg, rgba(139,92,246,0.5), rgba(236,72,153,0.3), rgba(99,102,241,0.5));
+}
+
+/* ── Status pill ── */
+.status-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+}
+.status-pill-success { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25); color: #4ade80; }
+.status-pill-warn    { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); color: #fbbf24; }
+.status-pill-error   { background: rgba(239,68,68,0.1);   border: 1px solid rgba(239,68,68,0.2);  color: #f87171; }
+.status-pill-info    { background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.25); color: #c084fc; }
 
 button { cursor: pointer; }
 input, textarea, button { font-family: inherit; }
