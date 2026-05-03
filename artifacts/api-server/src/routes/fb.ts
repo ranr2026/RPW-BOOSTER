@@ -18,14 +18,11 @@ router.post("/login", async (req: Request, res: Response) => {
     }
     const profile = await getProfile(cookie.trim());
     if (!profile.uid) {
-      return res.status(400).json({ error: "INVALID_COOKIE", message: "Could not extract UID — make sure you paste the full cookie including c_user and xs" });
+      return res.status(400).json({ error: "INVALID_COOKIE", message: "Could not extract UID — paste a full cookie including c_user and xs" });
     }
     return res.json(profile);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("Missing c_user") || msg.includes("Missing xs") || msg.includes("INVALID_COOKIE")) {
-      return res.status(400).json({ error: "INVALID_COOKIE", message: msg });
-    }
     return res.status(400).json({ error: "LOGIN_FAILED", message: msg });
   }
 });
@@ -37,9 +34,10 @@ router.post("/react", async (req: Request, res: Response) => {
     };
     if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
     if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
-    if (!reactionType) return res.status(400).json({ error: "MISSING_REACTION", message: "Reaction type required" });
+    if (!reactionType)    return res.status(400).json({ error: "MISSING_REACTION", message: "Reaction type required" });
 
-    const result = await addReaction(cookie.trim(), postUrl.trim(), reactionType);
+    const clampedCount = Math.min(Math.max(Number(count) || 1, 1), 100);
+    const result = await addReaction(cookie.trim(), postUrl.trim(), reactionType, clampedCount);
     return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -53,7 +51,7 @@ router.post("/share", async (req: Request, res: Response) => {
     if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
     if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
 
-    const result = await sharePost(cookie.trim(), postUrl.trim(), Math.min(Number(count) || 1, 20));
+    const result = await sharePost(cookie.trim(), postUrl.trim(), Math.min(Number(count) || 1, 50));
     return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -70,7 +68,7 @@ router.post("/comment", async (req: Request, res: Response) => {
     if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
     if (!comments?.length) return res.status(400).json({ error: "MISSING_COMMENTS", message: "At least one comment required" });
 
-    const result = await addComment(cookie.trim(), postUrl.trim(), comments, Math.min(Number(count) || 1, 20));
+    const result = await addComment(cookie.trim(), postUrl.trim(), comments, Math.min(Number(count) || 1, 50));
     return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

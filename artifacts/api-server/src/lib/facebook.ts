@@ -1,8 +1,6 @@
 /**
  * Facebook API wrapper — delegates all FB operations to fb_helper.py
- * via child_process spawn. Python's requests library handles gzip,
- * redirects, and cookies correctly; node-fetch has issues with FB's
- * compressed / custom-protocol responses from server IPs.
+ * via child_process spawn. Uses curl_cffi with Chrome TLS impersonation.
  */
 
 import { spawn } from "child_process";
@@ -10,8 +8,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// fb_helper.py lives at artifacts/api-server/fb_helper.py
-// dist/index.mjs → dist/ → api-server/
 const HELPER_PATH = path.resolve(__dirname, "../fb_helper.py");
 
 export interface FbProfile {
@@ -39,9 +35,7 @@ export interface FbTokenResult {
 
 async function callPython(input: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const py = spawn("python3", [HELPER_PATH], {
-      env: { ...process.env },
-    });
+    const py = spawn("python3", [HELPER_PATH], { env: { ...process.env } });
 
     let stdout = "";
     let stderr = "";
@@ -62,8 +56,7 @@ async function callPython(input: Record<string, unknown>): Promise<unknown> {
         }
         const result = JSON.parse(out) as Record<string, unknown>;
         if (result.ok === false) {
-          const err = new Error((result.message as string) || (result.error as string) || "Python helper error");
-          reject(err);
+          reject(new Error((result.message as string) || (result.error as string) || "Python helper error"));
           return;
         }
         resolve(result);
@@ -73,7 +66,7 @@ async function callPython(input: Record<string, unknown>): Promise<unknown> {
     });
 
     py.on("error", (err) => {
-      reject(new Error(`Failed to spawn python3: ${err.message}. Make sure python3 is installed.`));
+      reject(new Error(`Failed to spawn python3: ${err.message}`));
     });
 
     py.stdin.write(JSON.stringify(input));
@@ -93,10 +86,13 @@ export async function getProfile(cookie: string): Promise<FbProfile> {
   };
 }
 
-export async function addReaction(cookie: string, postUrl: string, reactionType: string): Promise<FbActionResult> {
-  const result = await callPython({ action: "react", cookie, postUrl, reactionType }) as FbActionResult & { ok: boolean };
+export async function addReaction(
+  cookie: string, postUrl: string, reactionType: string, count: number = 1
+): Promise<FbActionResult> {
+  const result = await callPython({ action: "react", cookie, postUrl, reactionType, count }) as FbActionResult & { ok: boolean };
   return {
     success: result.success ?? false,
+    count: result.count ?? 0,
     message: result.message ?? "",
     logs: result.logs ?? [],
   };
@@ -112,7 +108,9 @@ export async function sharePost(cookie: string, postUrl: string, count: number):
   };
 }
 
-export async function addComment(cookie: string, postUrl: string, comments: string[], count: number): Promise<FbActionResult> {
+export async function addComment(
+  cookie: string, postUrl: string, comments: string[], count: number
+): Promise<FbActionResult> {
   const result = await callPython({ action: "comment", cookie, postUrl, comments, count }) as FbActionResult & { ok: boolean };
   return {
     success: result.success ?? false,
