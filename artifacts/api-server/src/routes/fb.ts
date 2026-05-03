@@ -88,7 +88,7 @@ router.post("/share", async (req: Request, res: Response) => {
     if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
     if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
 
-    const result = await sharePost(cookie.trim(), postUrl.trim(), Math.min(Number(count) || 1, 50));
+    const result = await sharePost(cookie.trim(), postUrl.trim(), Number(count) || 1);
     return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

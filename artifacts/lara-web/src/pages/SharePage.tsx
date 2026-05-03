@@ -1,26 +1,24 @@
 import { useState } from "react";
-import { Share2, ChevronLeft, AlertTriangle, CheckCircle2, XCircle, Repeat } from "lucide-react";
+import { Share2, ChevronLeft, AlertTriangle, CheckCircle2, XCircle, Repeat, Zap } from "lucide-react";
 import type { Profile } from "@/App";
 import { api } from "@/lib/api";
 import LogWindow from "@/components/LogWindow";
 
 interface Props { profile: Profile; onBack: () => void; }
 
-const PRESETS = [1, 3, 5, 10, 20];
-
 export default function SharePage({ profile, onBack }: Props) {
   const [postUrl, setPostUrl] = useState("");
-  const [count,   setCount]   = useState(5);
+  const [count, setCount] = useState(5);
   const [loading, setLoading] = useState(false);
-  const [logs,    setLogs]    = useState<string[]>([]);
-  const [result,  setResult]  = useState<{ success: boolean; message: string } | null>(null);
-  const [modal,   setModal]   = useState<{ success: boolean; message: string; shared?: number } | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [modal, setModal] = useState<{ success: boolean; message: string; shared?: number } | null>(null);
   const [progress, setProgress] = useState(0);
 
   async function handleShare() {
     if (!postUrl.trim()) { setResult({ success: false, message: "Enter a post URL" }); return; }
     setLoading(true); setLogs([]); setResult(null); setModal(null); setProgress(0);
-    const interval = setInterval(() => setProgress(p => Math.min(p + Math.random() * 12, 88)), 500);
+    const interval = setInterval(() => setProgress(p => Math.min(p + Math.random() * 24, 88)), 100);
     try {
       const res = await api.share(profile.cookie, postUrl.trim(), count);
       clearInterval(interval); setProgress(100);
@@ -62,7 +60,7 @@ export default function SharePage({ profile, onBack }: Props) {
             </div>
           </div>
           <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Sharing Post...</p>
-          <p style={{ fontSize: 12, color: "var(--text2)", marginTop: 6 }}>{count}× shares · {Math.round(progress)}%</p>
+          <p style={{ fontSize: 12, color: "var(--text2)", marginTop: 6 }}>{count}× shares · 0.1s delay · {Math.round(progress)}%</p>
         </div>
       )}
 
@@ -93,7 +91,7 @@ export default function SharePage({ profile, onBack }: Props) {
         </div>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Spam Share</h2>
-          <p style={{ fontSize: 11, color: "var(--text3)" }}>Multi-Share Booster</p>
+          <p style={{ fontSize: 11, color: "var(--text3)" }}>Multi-Share Booster · Fast Mode</p>
         </div>
         <div style={{ padding: "4px 10px", borderRadius: 20, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.25)", fontSize: 11, fontWeight: 700, color: "#60a5fa", display: "flex", alignItems: "center", gap: 5 }}>
           <Repeat size={11} />{count}×
@@ -121,19 +119,27 @@ export default function SharePage({ profile, onBack }: Props) {
             <span>SHARE COUNT</span>
             <span style={{ color: "#60a5fa", fontWeight: 800, fontSize: 15 }}>{count}×</span>
           </label>
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {PRESETS.map(p => (
-              <button key={p} onClick={() => setCount(p)} style={{
-                flex: 1, padding: "8px 2px", borderRadius: 9, fontSize: 12, fontWeight: 700,
-                border: `1.5px solid ${count === p ? "#3b82f6" : "var(--border)"}`,
-                background: count === p ? "rgba(59,130,246,0.18)" : "var(--bg)",
-                color: count === p ? "#93c5fd" : "var(--text3)", cursor: "pointer", transition: "all 0.15s",
-              }}>{p}×</button>
-            ))}
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input
+              type="number"
+              min={1}
+              value={count}
+              onChange={e => setCount(Math.max(1, Number(e.target.value) || 1))}
+              className="lara-input"
+              placeholder="Custom share count"
+              style={{ flex: 1 }}
+            />
+            <button
+              onClick={() => setCount((v) => Math.max(1, v))}
+              className="lara-btn"
+              style={{ padding: "0 14px", background: "#2563eb", whiteSpace: "nowrap" }}
+            >
+              Set
+            </button>
           </div>
-          <input type="range" min={1} max={20} value={count} onChange={e => setCount(Number(e.target.value))} style={{ width: "100%", accentColor: "#3b82f6" }} />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text3)", marginTop: 3 }}>
-            <span>1×</span><span>20×</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text3)" }}>
+            <Zap size={13} color="#60a5fa" />
+            Fast mode: 0.1s delay
           </div>
         </div>
 
