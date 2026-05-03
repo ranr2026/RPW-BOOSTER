@@ -32,8 +32,8 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install mobile dependencies
-        working-directory: artifacts/rpw-mobile
+      - name: Install workspace dependencies
+        working-directory: .
         run: pnpm install --frozen-lockfile
 
       - name: Expo Prebuild (Android native project)
