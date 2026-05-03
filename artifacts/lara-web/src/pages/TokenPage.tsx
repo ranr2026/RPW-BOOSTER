@@ -45,7 +45,7 @@ export default function TokenPage({ profile, onBack }: Props) {
   const displayName = profile.name.startsWith("User ") ? `UID: ${profile.uid}` : profile.name;
 
   return (
-    <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
+    <div style={{ minHeight: "100vh", paddingBottom: 40, background: "var(--bg)" }}>
       {loading && (
         <div className="loading-overlay">
           <div style={{ position: "relative", width: 88, height: 88, marginBottom: 10 }}>
@@ -66,8 +66,8 @@ export default function TokenPage({ profile, onBack }: Props) {
               <KeyRound size={27} color="#f59e0b" />
             </div>
           </div>
-          <p style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Extracting Token...</p>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 6 }}>Scanning Facebook session</p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Extracting Token...</p>
+          <p style={{ fontSize: 12, color: "var(--text2)", marginTop: 6 }}>Scanning Facebook session</p>
         </div>
       )}
 
@@ -77,10 +77,10 @@ export default function TokenPage({ profile, onBack }: Props) {
             <div className="modal-icon" style={{ background: modal.success ? "rgba(245,158,11,0.12)" : "rgba(239,68,68,0.12)" }}>
               <KeyRound size={28} color={modal.success ? "#fbbf24" : "#f87171"} />
             </div>
-            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#fff", marginBottom: 8 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: "var(--text)", marginBottom: 8 }}>
               {modal.success ? "Token Extracted!" : "Extraction Failed"}
             </h3>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 18, lineHeight: 1.6 }}>{modal.message}</p>
+            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 18, lineHeight: 1.6 }}>{modal.message}</p>
             <button className="lara-btn" onClick={() => setModal(null)} style={{ background: modal.success ? "linear-gradient(135deg,#d97706,#f59e0b)" : "linear-gradient(135deg,#ef4444,#dc2626)", padding: "12px" }}>
               OK
             </button>
@@ -94,8 +94,8 @@ export default function TokenPage({ profile, onBack }: Props) {
           <KeyRound size={20} color="#f59e0b" />
         </div>
         <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Access Token</h2>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>EAAG Token Extractor</p>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Access Token</h2>
+          <p style={{ fontSize: 11, color: "var(--text3)" }}>EAAG Token Extractor</p>
         </div>
         {token && (
           <div style={{ padding: "4px 10px", borderRadius: 20, background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)", fontSize: 11, fontWeight: 700, color: "#4ade80" }}>
@@ -109,8 +109,8 @@ export default function TokenPage({ profile, onBack }: Props) {
           <img src={profile.avatar} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
             onError={e => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=7c3aed&color=fff`; }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{displayName}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>UID: {profile.uid}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{displayName}</div>
+            <div style={{ fontSize: 11, color: "var(--text3)" }}>UID: {profile.uid}</div>
           </div>
           <span className="dot dot-green dot-pulse" />
         </div>
@@ -122,8 +122,8 @@ export default function TokenPage({ profile, onBack }: Props) {
               <Fingerprint size={24} color="#f59e0b" />
             </div>
             <div>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 6 }}>EAAG Access Token</h3>
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", lineHeight: 1.7 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>EAAG Access Token</h3>
+              <p style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.7 }}>
                 Extracts the EAAG token from your active Facebook session. Required for Graph API calls and automation tools.
               </p>
             </div>
@@ -134,7 +134,7 @@ export default function TokenPage({ profile, onBack }: Props) {
         {token && (
           <div className="lara-card" style={{ padding: 16, marginBottom: 14, border: "1px solid rgba(245,158,11,0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.28)", letterSpacing: "0.1em" }}>ACCESS TOKEN</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.1em" }}>ACCESS TOKEN</span>
               <button onClick={copyToken} style={{
                 background: copied ? "rgba(34,197,94,0.15)" : "rgba(245,158,11,0.15)",
                 border: `1px solid ${copied ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
@@ -145,12 +145,12 @@ export default function TokenPage({ profile, onBack }: Props) {
                 {copied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
               </button>
             </div>
-            <div style={{ background: "rgba(0,0,0,0.5)", borderRadius: 8, padding: "10px 12px", fontFamily: "monospace", fontSize: 10, color: "#fbbf24", wordBreak: "break-all", lineHeight: 1.8, maxHeight: 100, overflow: "auto" }}>
+            <div style={{ background: "var(--bg)", borderRadius: 8, padding: "10px 12px", fontFamily: "monospace", fontSize: 10, color: "#fbbf24", wordBreak: "break-all", lineHeight: 1.8, maxHeight: 100, overflow: "auto" }}>
               {token}
             </div>
             {uid && (
-              <div style={{ marginTop: 10, fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
-                UID: <span style={{ color: "#fff", fontWeight: 600 }}>{uid}</span>
+              <div style={{ marginTop: 10, fontSize: 11, color: "var(--text2)" }}>
+                UID: <span style={{ color: "var(--text)", fontWeight: 600 }}>{uid}</span>
               </div>
             )}
           </div>
@@ -169,14 +169,14 @@ export default function TokenPage({ profile, onBack }: Props) {
 
         <div className="lara-card" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 9, alignItems: "flex-start" }}>
           <Lock size={13} color="#a78bfa" style={{ flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.7 }}>
+          <p style={{ fontSize: 10, color: "var(--text2)", lineHeight: 1.7 }}>
             Keep your token secret. It grants full access to your Facebook account — never share it with untrusted sites or services.
           </p>
         </div>
 
         <div className="lara-card" style={{ marginTop: 8, padding: "10px 14px", display: "flex", gap: 9, alignItems: "flex-start" }}>
           <AlertCircle size={13} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.7 }}>
+          <p style={{ fontSize: 10, color: "var(--text2)", lineHeight: 1.7 }}>
             Token extraction requires an authenticated session. If extraction fails, try refreshing your cookie.
           </p>
         </div>

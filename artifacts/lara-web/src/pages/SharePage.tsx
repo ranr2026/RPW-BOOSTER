@@ -40,7 +40,7 @@ export default function SharePage({ profile, onBack }: Props) {
   const displayName = profile.name.startsWith("User ") ? `UID: ${profile.uid}` : profile.name;
 
   return (
-    <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
+    <div style={{ minHeight: "100vh", paddingBottom: 40, background: "var(--bg)" }}>
       {loading && (
         <div className="loading-overlay">
           <div style={{ position: "relative", width: 88, height: 88, marginBottom: 10 }}>
@@ -61,8 +61,8 @@ export default function SharePage({ profile, onBack }: Props) {
               <Share2 size={26} color="#3b82f6" />
             </div>
           </div>
-          <p style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Sharing Post...</p>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 6 }}>{count}× shares · {Math.round(progress)}%</p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Sharing Post...</p>
+          <p style={{ fontSize: 12, color: "var(--text2)", marginTop: 6 }}>{count}× shares · {Math.round(progress)}%</p>
         </div>
       )}
 
@@ -72,13 +72,13 @@ export default function SharePage({ profile, onBack }: Props) {
             <div className="modal-icon" style={{ background: modal.success ? "rgba(59,130,246,0.12)" : "rgba(239,68,68,0.12)" }}>
               {modal.success ? <CheckCircle2 size={30} color="#60a5fa" /> : <XCircle size={30} color="#f87171" />}
             </div>
-            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#fff", marginBottom: 8 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: "var(--text)", marginBottom: 8 }}>
               {modal.success ? "Shares Complete!" : "Share Failed"}
             </h3>
             {modal.success && modal.shared && (
               <div style={{ fontSize: 36, fontWeight: 900, color: "#60a5fa", marginBottom: 8 }}>{modal.shared}×</div>
             )}
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 18, lineHeight: 1.6 }}>{modal.message}</p>
+            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 18, lineHeight: 1.6 }}>{modal.message}</p>
             <button className="lara-btn" onClick={() => setModal(null)} style={{ background: modal.success ? "linear-gradient(135deg,#2563eb,#6366f1)" : "linear-gradient(135deg,#ef4444,#dc2626)", padding: "12px" }}>
               {modal.success ? <><CheckCircle2 size={14} /> Done</> : "OK"}
             </button>
@@ -92,8 +92,8 @@ export default function SharePage({ profile, onBack }: Props) {
           <Share2 size={20} color="#3b82f6" />
         </div>
         <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Spam Share</h2>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>Multi-Share Booster</p>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Spam Share</h2>
+          <p style={{ fontSize: 11, color: "var(--text3)" }}>Multi-Share Booster</p>
         </div>
         <div style={{ padding: "4px 10px", borderRadius: 20, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.25)", fontSize: 11, fontWeight: 700, color: "#60a5fa", display: "flex", alignItems: "center", gap: 5 }}>
           <Repeat size={11} />{count}×
@@ -105,19 +105,19 @@ export default function SharePage({ profile, onBack }: Props) {
           <img src={profile.avatar} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
             onError={e => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=7c3aed&color=fff`; }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{displayName}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>UID: {profile.uid}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{displayName}</div>
+            <div style={{ fontSize: 11, color: "var(--text3)" }}>UID: {profile.uid}</div>
           </div>
           <span className="dot dot-green dot-pulse" />
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.28)", letterSpacing: "0.12em", marginBottom: 7 }}>POST URL</label>
+          <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.12em", marginBottom: 7 }}>POST URL</label>
           <input className="lara-input" value={postUrl} onChange={e => setPostUrl(e.target.value)} placeholder="https://www.facebook.com/..." />
         </div>
 
         <div style={{ marginBottom: 18 }}>
-          <label style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.28)", letterSpacing: "0.12em", marginBottom: 9 }}>
+          <label style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.12em", marginBottom: 9 }}>
             <span>SHARE COUNT</span>
             <span style={{ color: "#60a5fa", fontWeight: 800, fontSize: 15 }}>{count}×</span>
           </label>
@@ -125,14 +125,14 @@ export default function SharePage({ profile, onBack }: Props) {
             {PRESETS.map(p => (
               <button key={p} onClick={() => setCount(p)} style={{
                 flex: 1, padding: "8px 2px", borderRadius: 9, fontSize: 12, fontWeight: 700,
-                border: `1.5px solid ${count === p ? "#3b82f6" : "rgba(255,255,255,0.08)"}`,
-                background: count === p ? "rgba(59,130,246,0.18)" : "rgba(255,255,255,0.04)",
-                color: count === p ? "#93c5fd" : "rgba(255,255,255,0.35)", cursor: "pointer", transition: "all 0.15s",
+                border: `1.5px solid ${count === p ? "#3b82f6" : "var(--border)"}`,
+                background: count === p ? "rgba(59,130,246,0.18)" : "var(--bg)",
+                color: count === p ? "#93c5fd" : "var(--text3)", cursor: "pointer", transition: "all 0.15s",
               }}>{p}×</button>
             ))}
           </div>
           <input type="range" min={1} max={20} value={count} onChange={e => setCount(Number(e.target.value))} style={{ width: "100%", accentColor: "#3b82f6" }} />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.22)", marginTop: 3 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text3)", marginTop: 3 }}>
             <span>1×</span><span>20×</span>
           </div>
         </div>
@@ -144,8 +144,8 @@ export default function SharePage({ profile, onBack }: Props) {
               <Repeat size={17} color="#3b82f6" />
             </div>
             <div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Planned Shares</div>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>Posted to your timeline</div>
+              <div style={{ fontSize: 12, color: "var(--text2)" }}>Planned Shares</div>
+              <div style={{ fontSize: 11, color: "var(--text3)" }}>Posted to your timeline</div>
             </div>
           </div>
           <div style={{ fontSize: 34, fontWeight: 900, color: "#60a5fa" }}>{count}</div>
@@ -163,7 +163,7 @@ export default function SharePage({ profile, onBack }: Props) {
 
         <div className="lara-card" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 9, alignItems: "flex-start" }}>
           <AlertTriangle size={13} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.7 }}>
+          <p style={{ fontSize: 10, color: "var(--text2)", lineHeight: 1.7 }}>
             Spam sharing may trigger Facebook's anti-spam system. Use with care on secondary accounts only.
           </p>
         </div>

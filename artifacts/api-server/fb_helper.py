@@ -406,6 +406,35 @@ REACTION_TYPE_IDS = {
 # Numeric reaction IDs for the /reactions/react/ endpoint
 REACTION_NUMERIC = {"LIKE": "1", "LOVE": "2", "HAHA": "4", "WOW": "3", "SAD": "7", "ANGRY": "8", "CARE": "16"}
 
+def _get_current_reaction(cookie: str, post_url: str, post_id: str, uid: str, logs: list) -> str:
+    """Check if this account already reacted to the post. Returns reaction name (LIKE/LOVE/etc) or ''.
+    Uses mbasic page which shows 'Remove Like', 'Remove Love', etc. for existing reactions."""
+    try:
+        sm = make_cf_session(cookie, mobile=True)
+        # Try mbasic URL of the post
+        mbasic_url = re.sub(r'https?://(www\.)?facebook\.com', 'https://mbasic.facebook.com', post_url)
+        if "mbasic" not in mbasic_url:
+            mbasic_url = f"https://mbasic.facebook.com/{uid}/posts/{post_id}"
+        r = sm.get(mbasic_url, timeout=10)
+        text = r.text.lower()
+        # Check for "remove X" patterns — these appear when user already has that reaction
+        for rxn_name, variants in [
+            ("LIKE",  ["remove like", "unlike", "remove_like"]),
+            ("LOVE",  ["remove love", "remove_love"]),
+            ("CARE",  ["remove care", "remove_care"]),
+            ("HAHA",  ["remove haha", "remove_haha"]),
+            ("WOW",   ["remove wow",  "remove_wow"]),
+            ("SAD",   ["remove sad",  "remove_sad"]),
+            ("ANGRY", ["remove angry","remove_angry"]),
+        ]:
+            if any(v in text for v in variants):
+                logs.append(f"[INFO] Already reacted: {rxn_name}")
+                return rxn_name
+    except Exception as e:
+        logs.append(f"[DEBUG] Check reaction: {e}")
+    return ""
+
+
 def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
     logs = []
     post_id = _post_id(post_url)
@@ -421,6 +450,18 @@ def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
         return {"ok": True, "success": False,
                 "message": "⚠️ Cookie invalid or expired — export a fresh cookie from facebook.com and try again. If you see a security alert on Facebook, resolve it first.",
                 "logs": logs}
+
+    # ── Step 2: Check existing reaction (smart dedup) ────────────────────────
+    current_rxn = _get_current_reaction(cookie, post_url, post_id, uid, logs)
+    if current_rxn:
+        if current_rxn == rxn:
+            return {
+                "ok": True, "success": True, "count": 0,
+                "message": f"⏭️ Already reacted with {current_rxn} — no change needed (skipped)",
+                "logs": logs,
+            }
+        else:
+            logs.append(f"[INFO] Changing reaction {current_rxn} → {rxn}")
 
     reacted = 0
 
@@ -1151,54 +1192,129 @@ def do_comment(cookie: str, post_url: str, comments: list, count: int) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 # TOKEN
 # ══════════════════════════════════════════════════════════════════════════════
+def _token_extended(html: str) -> str:
+    """Extended token search — more patterns than _token()."""
+    for p in [
+        r'(EAAG[A-Za-z0-9+/=_%|]{30,})',
+        r'"access_token"\s*:\s*"(EAAG[A-Za-z0-9+/=_%|]+)"',
+        r'access_token=(EAAG[A-Za-z0-9+/%|]+)',
+        r'"accessToken"\s*:\s*"(EAAG[A-Za-z0-9+/=_%|]+)"',
+        r'EAAGwEZCFhZC[A-Za-z0-9+/=_%|]{20,}',
+        r'"token"\s*:\s*"(EAA[A-Za-z0-9+/=_%|]{30,})"',
+        r"'access_token'\s*:\s*'(EAAG[A-Za-z0-9+/=_%|]+)'",
+    ]:
+        m = re.search(p, html)
+        if m:
+            groups = m.groups()
+            val = groups[0] if groups else m.group(0)
+            return urllib.parse.unquote(val.rstrip('"\''))
+    return ""
+
+
 def do_token(cookie: str) -> dict:
     logs = []
     uid = _uid_from_cookie(cookie)
     tok = ""
 
-    # Try multiple pages
-    for url, mob in [
-        ("https://www.facebook.com/", False),
-        ("https://www.facebook.com/marketplace/", False),
+    # Strategy 1: Load pages and scan HTML for EAAG token
+    token_pages = [
+        ("https://www.facebook.com/",                       False),
+        ("https://www.facebook.com/marketplace/",            False),
+        ("https://business.facebook.com/",                   False),
+        ("https://developers.facebook.com/tools/explorer/",  False),
         ("https://adsmanager.facebook.com/adsmanager/manage", False),
-        ("https://m.facebook.com/", True),
-    ]:
+        ("https://www.facebook.com/settings/",               False),
+        ("https://m.facebook.com/",                          True),
+        ("https://m.facebook.com/settings/",                 True),
+    ]
+    for url, mob in token_pages:
         if tok:
             break
         try:
             s = make_cf_session(cookie, mobile=mob)
-            r = s.get(url, timeout=14)
-            logs.append(f"[INFO] {url} → {r.status_code} ({len(r.text)}B)")
+            r = s.get(url, timeout=14, allow_redirects=True)
+            logs.append(f"[INFO] {url.split('/')[2]} → {r.status_code} ({len(r.text)}B)")
             if r.status_code == 200:
-                t = _token(r.text)
+                t = _token_extended(r.text)
                 if t:
                     tok = t
-                    logs.append(f"[OK] Token found on {url} ✓")
+                    logs.append(f"[OK] Token found on {url.split('/')[2]} ✓")
         except Exception as e:
-            logs.append(f"[WARN] {url}: {e}")
+            logs.append(f"[WARN] {url.split('/')[2]}: {e}")
 
-    # b-api fallback
+    # Strategy 2: GraphQL CurrentViewerContextQuery — returns token in relay store
     if not tok:
         try:
-            app_token = "350685531728|62f8ce9f74b12f84c123cc23437a4a32"
-            if HAS_CFFI:
-                r = cf.get(
-                    f"https://b-api.facebook.com/method/auth.login?email={uid}&format=json&access_token={app_token}&generate_session_cookies=1&locale=en_US",
-                    headers={"User-Agent": "FBAN/FB4A;FBAV/377.0.0.29.112"},
-                    impersonate=CHROME, timeout=10)
-            else:
-                r = _req.get(f"https://b-api.facebook.com/method/auth.login?email={uid}&format=json&access_token={app_token}&generate_session_cookies=1&locale=en_US",
-                             headers={"User-Agent": "FBAN/FB4A;FBAV/377.0.0.29.112"}, timeout=10)
-            d = r.json()
-            if "access_token" in d:
-                tok = d["access_token"]
-                logs.append("[OK] Token via b-api ✓")
+            s2 = make_cf_session(cookie)
+            _, _, _, authenticated, auth_html = _get_auth(cookie, [])
+            if authenticated and auth_html:
+                fb_dtsg = _dtsg(auth_html)
+                lsd_m = re.search(r'"LSD",\[\],\{"token":"([^"]+)"', auth_html)
+                lsd = lsd_m.group(1) if lsd_m else ""
+                r2 = s2.post("https://www.facebook.com/api/graphql/", data={
+                    "fb_dtsg": fb_dtsg,
+                    "variables": json.dumps({}),
+                    "doc_id": "4561209987287038",  # CurrentSessionQuery
+                    "__a": "1", "__user": uid,
+                }, timeout=12)
+                t2 = _token_extended(r2.text)
+                if t2:
+                    tok = t2
+                    logs.append("[OK] Token via GraphQL session query ✓")
+        except Exception as e:
+            logs.append(f"[WARN] GraphQL token: {e}")
+
+    # Strategy 3: Instagram bridge (FB auth embedded in IG pages)
+    if not tok:
+        try:
+            s3 = make_cf_session(cookie)
+            r3 = s3.get("https://www.instagram.com/accounts/login/", timeout=12)
+            t3 = _token_extended(r3.text)
+            if t3:
+                tok = t3
+                logs.append("[OK] Token via IG bridge ✓")
+        except Exception as e:
+            logs.append(f"[WARN] IG bridge: {e}")
+
+    # Strategy 4: Android b-api with cookie-based session exchange
+    if not tok:
+        try:
+            cookie_str = _normalize_cookie(cookie)
+            jar_dict = _parse_cookie(cookie)
+            xs = jar_dict.get("xs", "")
+            # Exchange session cookie for token via internal endpoint
+            for app_id, app_secret in [
+                ("350685531728", "62f8ce9f74b12f84c123cc23437a4a32"),
+                ("124024574287414", ""),
+            ]:
+                app_token = f"{app_id}|{app_secret}" if app_secret else app_id
+                s4_kw = {"impersonate": CHROME} if HAS_CFFI else {}
+                r4 = cf.get(
+                    "https://b-api.facebook.com/method/auth.getSessionInfo",
+                    params={"access_token": app_token, "format": "json",
+                            "generate_session_cookies": "1", "locale": "en_US"},
+                    headers={"User-Agent": "FBAN/FB4A;FBAV/377.0.0.29.112;",
+                             "Cookie": cookie_str},
+                    timeout=10, **s4_kw)
+                d4 = {}
+                try: d4 = r4.json()
+                except Exception: pass
+                if "access_token" in d4:
+                    tok = d4["access_token"]
+                    logs.append(f"[OK] Token via b-api sessionInfo ✓")
+                    break
+                t4 = _token_extended(r4.text)
+                if t4:
+                    tok = t4
+                    logs.append("[OK] Token via b-api text ✓")
+                    break
         except Exception as e:
             logs.append(f"[WARN] b-api: {e}")
 
     return {
         "ok": True, "token": tok, "uid": uid, "expires": "Session-based",
-        "logs": logs + (["[OK] Token extracted ✓"] if tok else ["[FAIL] Token not found — checkpoint or expired cookie"])
+        "logs": logs + (["[OK] Token extracted ✓"] if tok else
+                        ["[FAIL] Token not found — try refreshing cookie or resolve any FB security alerts"])
     }
 
 
@@ -1238,7 +1354,7 @@ def _scan_js_for_guard_docid(s: object, page_html: str, logs: list) -> str:
     logs.append(f"[INFO] Scanning {len(all_srcs)} JS bundles for guard doc_id")
     for url in all_srcs[:6]:
         try:
-            rb = requests.get(url, timeout=15)
+            rb = cf.get(url, timeout=15)
             body = rb.text
             # Search for doc_id near any guard-related keyword
             for kw in ["profileGuard", "profile_guard", "ProfileGuard", "PROFILE_GUARD", "profile_picture_guard"]:
@@ -1316,7 +1432,7 @@ def do_guard(cookie: str, enable: bool = True) -> dict:
         guard_page = sm.get("https://m.facebook.com/privacy/touch/profile_picture_guard/",
                             headers={"User-Agent": "Mozilla/5.0 (Linux; Android 13) Chrome/120 Mobile Safari/537.36"},
                             timeout=15)
-        live_doc_id = _scan_js_for_guard_docid(requests, guard_page.text, logs)
+        live_doc_id = _scan_js_for_guard_docid(cf, guard_page.text, logs)
         if live_doc_id:
             for var_fmt in [
                 {"input": {"actor_id": uid, "client_mutation_id": _rand(), "value": guard_val, "privacy_setting": "PROFILE_GUARD"}},
@@ -1585,6 +1701,21 @@ def do_react_all(cookies: list, post_url: str, reaction: str) -> dict:
                 logs.append(f"[WARN] Account {uid}: not authenticated")
                 continue
 
+            try:
+                name = _name(auth_html) or f"User {uid}"
+            except Exception:
+                name = f"User {uid}"
+
+            # Smart dedup: skip if already reacted with same reaction
+            cur = _get_current_reaction(cookie, post_url, post_id, uid, acc_logs)
+            if cur and cur == rxn:
+                results.append({"uid": uid, "success": True, "name": name, "skipped": True})
+                logs.append(f"[SKIP] {name} ({uid}): already has {cur} ↩ skipped")
+                success += 1  # count as success since it's already done
+                continue
+            elif cur:
+                acc_logs.append(f"[INFO] {name}: changing {cur} → {rxn}")
+
             rxn_id = REACTION_MAP.get(rxn, 1)
             done = _react_graphql(cookie, post_id, uid, fb_dtsg, rxn, acc_logs,
                                   post_url=post_url, home_html=auth_html)
@@ -1594,11 +1725,6 @@ def do_react_all(cookies: list, post_url: str, reaction: str) -> dict:
                 done = _react_mbasic(cookie, post_url, post_id, uid, rxn, rxn_id, acc_logs)
             if not done and access_token:
                 done = _react_graph_api(access_token, post_id, rxn, acc_logs)
-
-            try:
-                name = _name(auth_html) or f"User {uid}"
-            except Exception:
-                name = f"User {uid}"
 
             results.append({"uid": uid, "success": done, "name": name})
             if done:

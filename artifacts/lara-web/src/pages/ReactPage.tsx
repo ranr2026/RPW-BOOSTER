@@ -36,14 +36,14 @@ function CooldownTimer({ seconds, onDone }: { seconds: number; onDone: () => voi
           <Clock size={17} color="#f59e0b" />
         </div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Cooldown Active</div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Anti-suspension protection (10 min)</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Cooldown Active</div>
+          <div style={{ fontSize: 11, color: "var(--text2)" }}>Anti-suspension protection (10 min)</div>
         </div>
         <div style={{ marginLeft: "auto", fontSize: 20, fontWeight: 800, color: "#fbbf24", fontFamily: "monospace" }}>
           {mins}:{secs.toString().padStart(2, "0")}
         </div>
       </div>
-      <div style={{ height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+      <div style={{ height: 6, background: "var(--bg3)", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg,#f59e0b,#fbbf24)", borderRadius: 3, transition: "width 1s linear" }} />
       </div>
     </div>
@@ -97,7 +97,7 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
   const displayName = profile.name.startsWith("User ") ? `UID: ${profile.uid}` : profile.name;
 
   return (
-    <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
+    <div style={{ minHeight: "100vh", paddingBottom: 40, background: "var(--bg)" }}>
       {loading && (
         <div className="loading-overlay">
           <div style={{ position: "relative", width: 90, height: 90, marginBottom: 10 }}>
@@ -116,8 +116,8 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
             </svg>
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30 }}>{rxn.emoji}</div>
           </div>
-          <p style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Boosting Reaction...</p>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
+          <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Boosting Reaction...</p>
+          <p style={{ fontSize: 12, color: "var(--text2)", marginTop: 6 }}>
             {rxn.emoji} {reaction} · {useAll ? `${effectiveCount} accounts` : `${count} attempt${count > 1 ? "s" : ""}`}
           </p>
           <p style={{ fontSize: 13, color: "#a855f7", fontWeight: 700, marginTop: 4 }}>{Math.round(progress)}%</p>
@@ -128,18 +128,18 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
         <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 56, marginBottom: 10 }}>{modal.success ? rxn.emoji : "❌"}</div>
-            <h3 style={{ fontSize: 19, fontWeight: 800, color: "#fff", marginBottom: 8 }}>
+            <h3 style={{ fontSize: 19, fontWeight: 800, color: "var(--text)", marginBottom: 8 }}>
               {modal.success ? "Reaction Boosted!" : "Boost Failed"}
             </h3>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 16, lineHeight: 1.7 }}>{modal.message}</p>
+            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 16, lineHeight: 1.7 }}>{modal.message}</p>
             {modal.success && modal.total && (
-              <div style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, textAlign: "left", fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 2 }}>
-                <div><strong style={{ color: "#fff" }}>Reaction:</strong> {rxn.emoji} {reaction}</div>
-                <div><strong style={{ color: "#fff" }}>Accounts:</strong> {modal.succeeded}/{modal.total} succeeded</div>
+              <div style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.18)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, textAlign: "left", fontSize: 12, color: "var(--text2)", lineHeight: 2 }}>
+                <div><strong style={{ color: "var(--text)" }}>Reaction:</strong> {rxn.emoji} {reaction}</div>
+                <div><strong style={{ color: "var(--text)" }}>Accounts:</strong> {modal.succeeded}/{modal.total} succeeded</div>
               </div>
             )}
             {!modal.success && (
-              <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.8, textAlign: "left" }}>
+              <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "var(--text2)", lineHeight: 1.8, textAlign: "left" }}>
                 <strong style={{ color: "#fbbf24" }}>Tip:</strong> Resolve any Facebook security alerts at facebook.com, then re-export a fresh cookie.
               </div>
             )}
@@ -156,8 +156,8 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
           <ThumbsUp size={20} color="#ef4444" />
         </div>
         <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Auto React</h2>
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>Reaction Booster · 7 Types</p>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Auto React</h2>
+          <p style={{ fontSize: 11, color: "var(--text3)" }}>Reaction Booster · 7 Types</p>
         </div>
         {useAll && accountCount > 0 && (
           <div style={{ padding: "4px 10px", borderRadius: 20, background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.3)", fontSize: 11, fontWeight: 700, color: "#c4b5fd", display: "flex", alignItems: "center", gap: 5 }}>
@@ -171,8 +171,8 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
           <img src={profile.avatar} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
             onError={e => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=7c3aed&color=fff`; }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{displayName}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.32)" }}>UID: {profile.uid}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{displayName}</div>
+            <div style={{ fontSize: 11, color: "var(--text3)" }}>UID: {profile.uid}</div>
           </div>
           <span className="dot dot-green dot-pulse" />
         </div>
@@ -187,12 +187,12 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
               <Users size={15} color="#818cf8" />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, color: "#fff", fontWeight: 600 }}>Boost All {accountCount} Accounts</div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>Max 20 per batch · 10-min cooldown</div>
+              <div style={{ fontSize: 12, color: "var(--text)", fontWeight: 600 }}>Boost All {accountCount} Accounts</div>
+              <div style={{ fontSize: 10, color: "var(--text2)" }}>Max 20 per batch · 10-min cooldown</div>
             </div>
             <button onClick={() => setUseAll(u => !u)} style={{
               width: 46, height: 26, borderRadius: 13, flexShrink: 0,
-              background: useAll ? "linear-gradient(135deg,#7c3aed,#ec4899)" : "rgba(255,255,255,0.1)",
+              background: useAll ? "linear-gradient(135deg,#7c3aed,#ec4899)" : "var(--bg3)",
               border: "none", cursor: "pointer", position: "relative", transition: "all 0.25s",
             }}>
               <div style={{ position: "absolute", top: 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", left: useAll ? 23 : 3, transition: "left 0.25s", boxShadow: "0 2px 4px rgba(0,0,0,0.3)" }} />
@@ -202,20 +202,20 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
 
         {/* Post URL */}
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.28)", letterSpacing: "0.12em", marginBottom: 7 }}>POST / VIDEO URL</label>
+          <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.12em", marginBottom: 7 }}>POST / VIDEO URL</label>
           <input className="lara-input" value={postUrl} onChange={e => setPostUrl(e.target.value)} placeholder="https://www.facebook.com/..." />
         </div>
 
         {/* Reaction type */}
         <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.28)", letterSpacing: "0.12em", marginBottom: 9 }}>REACTION TYPE</label>
+          <label style={{ display: "block", fontSize: 10, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.12em", marginBottom: 9 }}>REACTION TYPE</label>
           <div style={{ display: "flex", gap: 5 }}>
             {REACTIONS.map(r => (
               <button key={r.id} className={`reaction-btn${reaction === r.id ? " active" : ""}`}
                 onClick={() => setReaction(r.id)}
                 style={{ borderColor: reaction === r.id ? r.color : undefined, background: reaction === r.id ? `${r.color}18` : undefined, boxShadow: reaction === r.id ? `0 4px 14px ${r.color}30` : "none" }}>
                 <span style={{ fontSize: 20 }}>{r.emoji}</span>
-                <span style={{ fontSize: 9, color: reaction === r.id ? r.color : "rgba(255,255,255,0.25)" }}>{r.label}</span>
+                <span style={{ fontSize: 9, color: reaction === r.id ? r.color : "var(--text3)" }}>{r.label}</span>
               </button>
             ))}
           </div>
@@ -224,7 +224,7 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
         {/* Count — only single-account mode */}
         {!useAll && (
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.28)", letterSpacing: "0.12em", marginBottom: 9 }}>
+            <label style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.12em", marginBottom: 9 }}>
               <span>BOOST COUNT</span>
               <span style={{ color: rxn.color, fontWeight: 800, fontSize: 15 }}>{count}×</span>
             </label>
@@ -232,9 +232,9 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
               {PRESETS.map(p => (
                 <button key={p} onClick={() => setCount(p)} style={{
                   flex: 1, padding: "7px 2px", borderRadius: 9, fontSize: 12, fontWeight: 700,
-                  border: `1.5px solid ${count === p ? "#8b5cf6" : "rgba(255,255,255,0.08)"}`,
-                  background: count === p ? "rgba(139,92,246,0.18)" : "rgba(255,255,255,0.04)",
-                  color: count === p ? "#c4b5fd" : "rgba(255,255,255,0.35)", cursor: "pointer", transition: "all 0.15s",
+                  border: `1.5px solid ${count === p ? "#8b5cf6" : "var(--border)"}`,
+                  background: count === p ? "rgba(139,92,246,0.18)" : "var(--bg)",
+                  color: count === p ? "#c4b5fd" : "var(--text3)", cursor: "pointer", transition: "all 0.15s",
                 }}>{p}×</button>
               ))}
             </div>
@@ -260,7 +260,7 @@ export default function ReactPage({ profile, onBack, accountCount }: Props) {
 
         <div className="lara-card" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 9, alignItems: "flex-start" }}>
           <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.7 }}>
+          <p style={{ fontSize: 10, color: "var(--text2)", lineHeight: 1.7 }}>
             10-minute cooldown between bulk boosts prevents suspension. Max 20 accounts per batch.
           </p>
         </div>
