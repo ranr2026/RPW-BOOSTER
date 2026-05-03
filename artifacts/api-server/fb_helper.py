@@ -338,17 +338,36 @@ def get_profile(cookie: str) -> dict:
     elif not name:
         name = "Unknown (invalid cookie)"
 
-    # ── Avatar: try graph API redirect ───────────────────────────────────────
+    # ── Avatar: extract from auth page HTML (most reliable, no token needed) ──
     try:
-        s3 = make_cf_session(cookie)
-        r3 = s3.get(f"https://graph.facebook.com/{uid}/picture?type=large&redirect=false",
-                    timeout=8)
-        d = r3.json()
-        if "data" in d and "url" in d["data"]:
-            candidate = d["data"]["url"]
-            # Filter out the default silhouette (contains t1.30497 which is the placeholder)
-            if "t1.30497" not in candidate:
-                avatar = candidate
+        # Method 1: og:image from home page / profile page HTML
+        if auth_html:
+            m_og = re.search(r'"profilePicLarge"\s*,\s*\{\s*"uri"\s*:\s*"([^"]+)"', auth_html)
+            if not m_og:
+                m_og = re.search(r'"profilePicMedium"\s*,\s*\{\s*"uri"\s*:\s*"([^"]+)"', auth_html)
+            if not m_og:
+                m_og = re.search(r'"profile_picture"\s*:\s*\{\s*"uri"\s*:\s*"([^"]+)"', auth_html)
+            if not m_og:
+                m_og = re.search(r'"pictureUrl"\s*:\s*"([^"]+profile_photos[^"]+)"', auth_html)
+            if m_og:
+                cand = m_og.group(1).replace("\\/", "/").replace("\\u0026", "&")
+                if uid in cand or "scontent" in cand or "fbcdn" in cand:
+                    avatar = cand
+        # Method 2: fetch profile page and get og:image
+        if avatar == f"https://graph.facebook.com/{uid}/picture?type=large":
+            try:
+                sp = make_cf_session(cookie)
+                rp = sp.get(f"https://www.facebook.com/profile.php?id={uid}", timeout=12)
+                if rp.status_code == 200:
+                    m_og2 = re.search(r'<meta property="og:image" content="([^"]+)"', rp.text)
+                    if not m_og2:
+                        m_og2 = re.search(r'"profilePicLarge"\s*,\s*\{\s*"uri"\s*:\s*"([^"]+)"', rp.text)
+                    if m_og2:
+                        cand2 = m_og2.group(1).replace("\\/", "/").replace("\\u0026", "&")
+                        if "t1.30497" not in cand2 and len(cand2) > 20:
+                            avatar = cand2
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -380,10 +399,12 @@ REACTION_TYPE_IDS = {
     "LOVE":  "1678524932434102",
     "HAHA":  "115940658764963",
     "WOW":   "908563459236466",
-    "SAD":   "908563459236466",   # FB uses same bucket; server distinguishes by action_id
+    "SAD":   "908563459236466",
     "ANGRY": "444813342392137",
     "CARE":  "613557422527858",
 }
+# Numeric reaction IDs for the /reactions/react/ endpoint
+REACTION_NUMERIC = {"LIKE": "1", "LOVE": "2", "HAHA": "4", "WOW": "3", "SAD": "7", "ANGRY": "8", "CARE": "16"}
 
 def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
     logs = []
@@ -405,27 +426,27 @@ def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
 
     for attempt in range(count):
         if attempt > 0:
-            time.sleep(random.uniform(1.2, 2.5))
+            time.sleep(random.uniform(0.25, 0.6))
 
         done = False
 
-        # ── Method A: Desktop GraphQL (CometUFIFeedbackReactMutation) — PRIMARY ─
-        # Uses the working doc_id discovered from live FB bundles
+        # ── Method A: GraphQL (CometUFIFeedbackReactMutation) — fast primary ────
+        # Uses simple base64 feedback_id (no post-page fetch needed, ~1.5s)
         if not done:
             done = _react_graphql(cookie, post_id, uid, fb_dtsg, rxn, logs,
                                   post_url=post_url, home_html=auth_html)
 
-        # ── Method B: mbasic scrape + follow like link ────────────────────────
+        # ── Method B: Mobile UFI endpoint ────────────────────────────────────
+        if not done:
+            done = _react_ufi(cookie, post_id, uid, fb_dtsg, rxn_id, logs, post_url)
+
+        # ── Method C: mbasic scrape ───────────────────────────────────────────
         if not done:
             done = _react_mbasic(cookie, post_url, post_id, uid, rxn, rxn_id, logs)
 
-        # ── Method C: Graph API via access_token ────────────────────────────
+        # ── Method D: Graph API via access_token ─────────────────────────────
         if not done and access_token:
             done = _react_graph_api(access_token, post_id, rxn_str, logs)
-
-        # ── Method D: Mobile UFI endpoint ────────────────────────────────────
-        if not done:
-            done = _react_ufi(cookie, post_id, uid, fb_dtsg, rxn_id, logs)
 
         if done:
             reacted += 1
@@ -449,6 +470,54 @@ def do_react(cookie: str, post_url: str, reaction: str, count: int = 1) -> dict:
         msg = "❌ Reaction failed — ensure the post URL is public and your cookie is fresh"
 
     return {"ok": True, "success": False, "message": msg, "logs": logs}
+
+
+def _react_reactions_endpoint(cookie: str, post_id: str, uid: str, fb_dtsg: str,
+                               rxn: str, logs: list, post_url: str = "") -> bool:
+    """POST to FB AJAX like/reaction endpoints — try multiple known paths."""
+    rxn_num = REACTION_NUMERIC.get(rxn, "1")
+    rxn_id  = str(REACTION_MAP.get(rxn, 1))
+    referer = post_url or f"https://www.facebook.com/{uid}/posts/{post_id}"
+
+    attempts = [
+        # (url, mobile, payload_builder)
+        ("https://www.facebook.com/ajax/ufi/like.php", False, {
+            "object_id": post_id, "action_type": rxn_id,
+            "source": "23", "fb_dtsg": fb_dtsg,
+            "__user": uid, "__a": "1", "av": uid,
+        }),
+        ("https://www.facebook.com/like/action/", False, {
+            "ft_ent_identifier": post_id, "how": rxn_id,
+            "object_id": post_id, "action_type": "ADD_REACTION",
+            "fb_dtsg": fb_dtsg, "__user": uid, "__a": "1",
+        }),
+    ]
+
+    for url, mobile, payload in attempts:
+        try:
+            s = make_cf_session(cookie, mobile=mobile)
+            s.headers.update({
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://www.facebook.com",
+                "Referer": referer,
+                "X-Requested-With": "XMLHttpRequest",
+            })
+            r = s.post(url, data=payload, timeout=10)
+            logs.append(f"[DEBUG] ajax {url.split('/')[-2]} → {r.status_code} body={r.text[:100]}")
+            if r.status_code in (200, 302):
+                txt = r.text
+                if "1357054" in txt or "checkpoint" in txt.lower()[:300]:
+                    return False
+                if ('"payload"' in txt and '"errorSummary"' not in txt
+                        and "errorDescription" not in txt):
+                    logs.append(f"[OK] Reacted via AJAX ({url.split('/')[-2]}) ✓")
+                    return True
+                if len(txt.strip()) < 60 or txt.strip() in ("{}", "[]", "null"):
+                    logs.append(f"[OK] Reacted via AJAX (empty ok) ✓")
+                    return True
+        except Exception as e:
+            logs.append(f"[WARN] ajax {url}: {e}")
+    return False
 
 
 def _react_mbasic(cookie: str, post_url: str, post_id: str, uid: str,
@@ -714,40 +783,21 @@ def _react_graphql(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn: str,
                    logs: list, post_url: str = "", home_html: str = "") -> bool:
     """Desktop GraphQL CometUFIFeedbackReactMutation with Chrome TLS.
 
-    Uses the real compound feedback_id and feedback_reaction_id (string type ID).
-    Discovers the live doc_id via rsrcMap; falls back to known IDs.
+    FAST PATH: simple base64 feedback_id (no post-page fetch needed — confirmed working).
+    Tries _KNOWN_REACT_DOC_IDS first WITHOUT bundle scanning.
+    Only falls back to dynamic discovery if known IDs expire.
     """
     rxn_type_id = REACTION_TYPE_IDS.get(rxn, REACTION_TYPE_IDS["LIKE"])
 
-    # ── Get real compound feedback_id (per-post — never use stale global cache) ──
-    feedback_id = ""
-    if post_url:
-        feedback_id = _extract_compound_feedback_id(post_url, cookie, logs)
-    if not feedback_id:
-        feedback_id = _feedback_id(post_id)
-        logs.append(f"[INFO] Using simple feedback_id fallback")
+    # Simple base64 feedback_id is confirmed to work (verified 2025-05):
+    # GraphQL returns reaction_count + viewer_feedback_reaction_info with simple ID.
+    # Skip the expensive 5s post-page fetch entirely.
+    feedback_id = _feedback_id(post_id)
+    logs.append(f"[INFO] feedback_id={feedback_id[:20]}… (simple base64)")
 
-    # ── Build home-page HTML for rsrcMap scanning ──────────────────────────
-    # Prefer the already-fetched home HTML; otherwise load it fresh
-    scan_html = home_html
-    if not scan_html:
-        try:
-            s0 = make_cf_session(cookie)
-            r0 = s0.get("https://www.facebook.com/", timeout=20)
-            scan_html = r0.text if r0.status_code == 200 else ""
-        except Exception:
-            scan_html = ""
-
-    # ── Discover live doc_id via rsrcMap ──────────────────────────────────────
-    dynamic_id = _find_react_doc_id(scan_html, cookie, logs) if scan_html else ""
-
-    # Build candidate list: dynamic first, then known good, then nothing more
-    doc_ids = []
-    if dynamic_id:
-        doc_ids.append(dynamic_id)
-    for kid in _KNOWN_REACT_DOC_IDS:
-        if kid not in doc_ids:
-            doc_ids.append(kid)
+    # Start with known IDs — no bundle scan needed on happy path
+    doc_ids = list(_KNOWN_REACT_DOC_IDS)
+    dynamic_done = False   # scan bundles at most once, only on doc_id failure
 
     if not doc_ids:
         logs.append("[WARN] No reaction doc_id available")
@@ -766,13 +816,13 @@ def _react_graphql(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn: str,
         try:
             variables = {
                 "input": {
-                    "client_mutation_id": _rand(),
-                    "actor_id": uid,
-                    "feedback_id": feedback_id,
+                    "client_mutation_id":   _rand(),
+                    "actor_id":             uid,
+                    "feedback_id":          feedback_id,
                     "feedback_reaction_id": rxn_type_id,
-                    "action": "ADD_REACTION",
-                    "useDefaultActor": False,
-                    "reaction_style": None,
+                    "action":               "ADD_REACTION",
+                    "useDefaultActor":      False,
+                    "reaction_style":       REACTION_STR.get(rxn, "like"),
                 }
             }
             r = s.post("https://www.facebook.com/api/graphql/", data={
@@ -789,22 +839,33 @@ def _react_graphql(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn: str,
             if r.status_code != 200:
                 continue
             txt = r.text
-            # ── Success signals ───────────────────────────────────────────────
+            # ── Strict success signals — require real reaction data ───────────
             if '"reaction_count"' in txt or '"viewer_feedback_reaction_info"' in txt:
                 logs.append("[OK] Reacted via GraphQL ✓")
                 return True
-            if '"data"' in txt and '"errors"' not in txt:
-                logs.append("[OK] Reacted via GraphQL (no error) ✓")
+            if '"feedback_react"' in txt and '"errors"' not in txt:
+                logs.append("[OK] Reacted via GraphQL (feedback_react) ✓")
                 return True
             # ── Hard stop ────────────────────────────────────────────────────
             if "1357054" in txt:
                 logs.append("[WARN] GraphQL checkpoint/IP block")
                 return False
             if "not_found" in txt or '"The GraphQL document' in txt:
-                # Cache is stale — clear it and try next
-                _REACT_DOC_CACHE["id"] = ""
-                _REACT_DOC_CACHE["expires"] = 0.0
-                logs.append(f"[DEBUG] doc_id {doc_id} expired — clearing cache")
+                logs.append(f"[DEBUG] doc_id {doc_id} expired — will try dynamic discovery")
+                # On first expiry, do one-time bundle scan and append any new IDs
+                if not dynamic_done:
+                    dynamic_done = True
+                    scan_html = home_html
+                    if not scan_html:
+                        try:
+                            s0 = make_cf_session(cookie)
+                            r0 = s0.get("https://www.facebook.com/", timeout=18)
+                            scan_html = r0.text if r0.status_code == 200 else ""
+                        except Exception:
+                            scan_html = ""
+                    dyn = _find_react_doc_id(scan_html, cookie, logs) if scan_html else ""
+                    if dyn and dyn not in doc_ids:
+                        doc_ids.append(dyn)
                 continue
             logs.append(f"[DEBUG] response: {txt[:200]}")
         except Exception as e:
@@ -837,30 +898,41 @@ def _react_graph_api(token: str, post_id: str, rxn_str: str, logs: list) -> bool
     return False
 
 
-def _react_ufi(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn_id: int, logs: list) -> bool:
+def _react_ufi(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn_id: int,
+               logs: list, post_url: str = "") -> bool:
     """Mobile UFI /ufi/react/ endpoint."""
+    referer = post_url or f"https://www.facebook.com/{uid}/posts/{post_id}"
     for ufi_url in [
         "https://www.facebook.com/ufi/react/",
         "https://m.facebook.com/ufi/react/",
-        "https://www.facebook.com/reactions/add/",
     ]:
         try:
             s = make_cf_session(cookie, mobile=True)
-            s.headers.update({"Content-Type": "application/x-www-form-urlencoded",
-                              "Origin": "https://www.facebook.com",
-                              "Referer": f"https://www.facebook.com/{uid}/posts/{post_id}"})
+            s.headers.update({
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://www.facebook.com",
+                "Referer": referer,
+                "X-Requested-With": "XMLHttpRequest",
+            })
             r = s.post(ufi_url, data={
                 "ft_ent_identifier": post_id,
-                "reaction_type": str(rxn_id),
-                "action": "ADD_REACTION",
-                "fb_dtsg": fb_dtsg,
-                "__user": uid,
-                "__a": "1",
+                "reaction_type":     str(rxn_id),
+                "action":            "ADD_REACTION",
+                "fb_dtsg":           fb_dtsg,
+                "__user":            uid,
+                "__a":               "1",
+                "av":                uid,
             }, timeout=12)
-            logs.append(f"[DEBUG] UFI {ufi_url} → {r.status_code}")
-            if r.status_code == 200 and "error" not in r.text.lower()[:100]:
-                logs.append(f"[OK] Reacted via UFI ✓")
-                return True
+            logs.append(f"[DEBUG] UFI {ufi_url} → {r.status_code} body={r.text[:100]}")
+            if r.status_code in (200, 302):
+                txt = r.text
+                if "1357054" in txt or "checkpoint" in txt.lower()[:200]:
+                    return False
+                # Not an error response
+                if ('"error":0' in txt or '"payload"' in txt
+                        or len(txt.strip()) < 50 or '"reaction"' in txt):
+                    logs.append(f"[OK] Reacted via UFI ✓")
+                    return True
         except Exception as e:
             logs.append(f"[WARN] UFI {ufi_url}: {e}")
     return False
@@ -881,7 +953,7 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
     shared = 0
     for i in range(count):
         if i > 0:
-            time.sleep(random.uniform(1.5, 3.0))
+            time.sleep(random.uniform(0.3, 0.6))
         logs.append(f"[INFO] Share {i+1}/{count}")
         done = False
 
@@ -970,7 +1042,7 @@ def do_comment(cookie: str, post_url: str, comments: list, count: int) -> dict:
 
     for i in range(count):
         if i > 0:
-            time.sleep(random.uniform(2.0, 4.0))
+            time.sleep(random.uniform(0.3, 0.6))
         text = comments[i % len(comments)] if comments else "nice"
         logs.append(f"[INFO] Comment {i+1}/{count}: '{text[:40]}'")
         done = False
@@ -1157,7 +1229,7 @@ def do_react_all(cookies: list, post_url: str, reaction: str) -> dict:
 
     for i, cookie in enumerate(cookies):
         if i > 0:
-            time.sleep(random.uniform(1.5, 3.5))
+            time.sleep(random.uniform(0.3, 0.7))
 
         uid = "?"
         acc_logs: list = []
@@ -1178,11 +1250,11 @@ def do_react_all(cookies: list, post_url: str, reaction: str) -> dict:
             done = _react_graphql(cookie, post_id, uid, fb_dtsg, rxn, acc_logs,
                                   post_url=post_url, home_html=auth_html)
             if not done:
+                done = _react_ufi(cookie, post_id, uid, fb_dtsg, rxn_id, acc_logs, post_url)
+            if not done:
                 done = _react_mbasic(cookie, post_url, post_id, uid, rxn, rxn_id, acc_logs)
             if not done and access_token:
                 done = _react_graph_api(access_token, post_id, rxn, acc_logs)
-            if not done:
-                done = _react_ufi(cookie, post_id, uid, fb_dtsg, rxn_id, acc_logs)
 
             try:
                 name = _name(auth_html) or f"User {uid}"
@@ -1224,7 +1296,7 @@ def do_comment_all(cookies: list, post_url: str, comments: list, count: int) -> 
 
     for i, cookie in enumerate(cookies):
         if i > 0:
-            time.sleep(random.uniform(2.0, 4.0))
+            time.sleep(random.uniform(0.3, 0.7))
 
         uid = "?"
         try:
