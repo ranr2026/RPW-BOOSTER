@@ -942,63 +942,62 @@ def _react_ufi(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn_id: int,
 # SHARE
 # ══════════════════════════════════════════════════════════════════════════════
 def do_share(cookie: str, post_url: str, count: int) -> dict:
+    """Fast share: reuses session, remembers best method, minimal delays."""
     logs = []
     post_id = _post_id(post_url)
     logs.append(f"[INFO] Sharing {post_id} × {count}")
     fb_dtsg, uid, access_token, authenticated, _auth_html = _get_auth(cookie, logs)
     if not fb_dtsg or not authenticated:
         return {"ok": True, "success": False, "count": 0,
-                "message": "❌ Cookie invalid or expired — re-export a fresh cookie from facebook.com", "logs": logs}
+                "message": "❌ Cookie invalid or expired — re-export a fresh cookie from facebook.com",
+                "logs": logs}
 
+    # Create sessions ONCE and reuse across all shares
+    s_mob = make_cf_session(cookie, mobile=True)
+    s_web = make_cf_session(cookie)
     shared = 0
+    best_method: str | None = None  # track which method works to skip others
+
+    # Pre-fetch the mbasic share page once (reuse form data)
+    mbasic_form_url: str = ""
+    mbasic_form_data: dict = {}
+    try:
+        murl = f"https://mbasic.facebook.com/sharer/mbasic/share/?u={urllib.parse.quote(post_url)}&refid=8"
+        rm0 = s_mob.get(murl, timeout=13)
+        if rm0.status_code == 200 and len(rm0.text) > 500:
+            fa = re.search(r'<form[^>]+action="([^"]+)"', rm0.text)
+            if fa:
+                mbasic_form_url = fa.group(1).replace("&amp;", "&")
+                if not mbasic_form_url.startswith("http"):
+                    mbasic_form_url = "https://mbasic.facebook.com" + mbasic_form_url
+                mbasic_form_data = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', rm0.text))
+                logs.append(f"[INFO] mbasic form ready ✓")
+    except Exception as e:
+        logs.append(f"[WARN] mbasic pre-fetch: {e}")
+
     for i in range(count):
         if i > 0:
-            time.sleep(random.uniform(0.3, 0.6))
+            time.sleep(random.uniform(0.1, 0.3))  # faster delay between shares
         logs.append(f"[INFO] Share {i+1}/{count}")
         done = False
 
-        # Method A: Graph API share
-        if access_token and not done:
+        # Method A: mbasic share form (most reliable, fastest) — skip if we know it fails
+        if mbasic_form_url and best_method in (None, "mbasic"):
             try:
-                r = cf.post("https://graph.facebook.com/v18.0/me/feed",
-                            params={"link": post_url, "published": "1", "access_token": access_token},
-                            impersonate=CHROME if HAS_CFFI else None, timeout=12)
-                d = r.json()
-                if "id" in d:
-                    logs.append(f"[OK] Shared via Graph API ✓ id={d['id']}")
+                # Re-fetch form only if first iteration failed to cache
+                form_data = dict(mbasic_form_data)  # copy
+                rp = s_mob.post(mbasic_form_url, data=form_data, timeout=11)
+                if rp.status_code in (200, 302):
+                    logs.append(f"[OK] Share {i+1} via mbasic ✓")
                     done = True
-                else:
-                    logs.append(f"[WARN] Graph API: {d.get('error', {}).get('message', str(d)[:80])}")
+                    best_method = "mbasic"
             except Exception as e:
-                logs.append(f"[WARN] Graph: {e}")
+                logs.append(f"[WARN] mbasic share {i+1}: {e}")
 
-        # Method B: mbasic share form
-        if not done:
+        # Method B: GraphQL createShareStory — use if mbasic failed
+        if not done and best_method in (None, "graphql"):
             try:
-                murl = f"https://mbasic.facebook.com/sharer/mbasic/share/?u={urllib.parse.quote(post_url)}&refid=8"
-                s = make_cf_session(cookie, mobile=True)
-                rm = s.get(murl, timeout=13)
-                logs.append(f"[DEBUG] mbasic share page → {rm.status_code}")
-                if rm.status_code == 200 and len(rm.text) > 500:
-                    fa = re.search(r'<form[^>]+action="([^"]+)"', rm.text)
-                    if fa:
-                        form_url = fa.group(1).replace("&amp;", "&")
-                        if not form_url.startswith("http"):
-                            form_url = "https://mbasic.facebook.com" + form_url
-                        hidden = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', rm.text))
-                        rp = s.post(form_url, data=hidden, timeout=12)
-                        logs.append(f"[DEBUG] share POST → {rp.status_code}")
-                        if rp.status_code in (200, 302):
-                            logs.append("[OK] Shared via mbasic ✓")
-                            done = True
-            except Exception as e:
-                logs.append(f"[WARN] mbasic share: {e}")
-
-        # Method C: GraphQL createShareStory
-        if not done:
-            try:
-                s = make_cf_session(cookie)
-                r = s.post("https://www.facebook.com/api/graphql/", data={
+                r = s_web.post("https://www.facebook.com/api/graphql/", data={
                     "fb_dtsg": fb_dtsg,
                     "variables": json.dumps({"input": {
                         "actor_id": uid, "client_mutation_id": _rand(),
@@ -1007,21 +1006,57 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
                     }}),
                     "doc_id": "4004469316266496",
                     "__a": "1", "__user": uid,
-                }, timeout=14)
-                logs.append(f"[DEBUG] GraphQL share → {r.status_code}")
-                if r.status_code == 200 and '"data"' in r.text and "errors" not in r.text:
-                    logs.append("[OK] Shared via GraphQL ✓")
+                }, timeout=12)
+                if r.status_code == 200 and ('"data"' in r.text or '"story"' in r.text) and "errors" not in r.text:
+                    logs.append(f"[OK] Share {i+1} via GraphQL ✓")
                     done = True
+                    best_method = "graphql"
             except Exception as e:
-                logs.append(f"[WARN] GraphQL share: {e}")
+                logs.append(f"[WARN] GraphQL share {i+1}: {e}")
+
+        # Method C: Graph API (needs access token)
+        if not done and access_token and best_method in (None, "graph_api"):
+            try:
+                r = s_web.post("https://graph.facebook.com/v18.0/me/feed",
+                               params={"link": post_url, "published": "1", "access_token": access_token},
+                               timeout=11)
+                d = r.json()
+                if "id" in d:
+                    logs.append(f"[OK] Share {i+1} via Graph API ✓ id={d['id']}")
+                    done = True
+                    best_method = "graph_api"
+            except Exception as e:
+                logs.append(f"[WARN] Graph API share {i+1}: {e}")
+
+        # Method D: re-fetch mbasic page fresh (fallback when all else fails)
+        if not done:
+            try:
+                murl2 = f"https://mbasic.facebook.com/sharer/mbasic/share/?u={urllib.parse.quote(post_url)}&refid=8"
+                rm2 = s_mob.get(murl2, timeout=13)
+                if rm2.status_code == 200:
+                    fa2 = re.search(r'<form[^>]+action="([^"]+)"', rm2.text)
+                    if fa2:
+                        fu2 = fa2.group(1).replace("&amp;", "&")
+                        if not fu2.startswith("http"):
+                            fu2 = "https://mbasic.facebook.com" + fu2
+                        hd2 = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', rm2.text))
+                        rp2 = s_mob.post(fu2, data=hd2, timeout=11)
+                        if rp2.status_code in (200, 302):
+                            logs.append(f"[OK] Share {i+1} via mbasic fresh ✓")
+                            done = True
+            except Exception as e:
+                logs.append(f"[WARN] mbasic fresh {i+1}: {e}")
 
         if done:
             shared += 1
+        else:
+            logs.append(f"[FAIL] Share {i+1} failed — all methods exhausted")
 
     return {
         "ok": True, "success": shared > 0, "count": shared,
-        "message": f"✅ Shared {shared}/{count} times" if shared > 0 else "❌ Share failed — check cookie and post URL",
-        "logs": logs
+        "message": f"✅ Shared {shared}/{count} times" if shared > 0
+                   else "❌ Share failed — check cookie and post URL",
+        "logs": logs,
     }
 
 
@@ -1170,124 +1205,214 @@ def do_token(cookie: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 # GUARD
 # ══════════════════════════════════════════════════════════════════════════════
+def _get_profile_photo_id(s: object, uid: str, logs: list) -> str:
+    """Extract current profile picture photo ID from the profile page."""
+    try:
+        r = s.get(f"https://www.facebook.com/profile.php?id={uid}",
+                  headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"},
+                  timeout=14)
+        body = r.text
+        # Try various patterns to find the profile picture photo ID
+        for pat in [
+            r'"profile_picture"[^}]{0,200}"id"\s*:\s*"(\d{10,})"',
+            r'photo/(?:\?fbid=|)(\d{10,})',
+            r'"photo_id"\s*:\s*"(\d{10,})"',
+            r'fbid=(\d{10,})[^"]*profile_picture',
+            r'"node"\s*:\s*\{"id"\s*:\s*"(\d{10,})"[^}]{0,100}"__typename"\s*:\s*"Photo"',
+        ]:
+            m = re.search(pat, body)
+            if m:
+                logs.append(f"[INFO] Profile photo ID: {m.group(1)}")
+                return m.group(1)
+    except Exception as e:
+        logs.append(f"[WARN] Photo ID fetch: {e}")
+    return ""
+
+
+def _scan_js_for_guard_docid(s: object, page_html: str, logs: list) -> str:
+    """Download JS bundles from the page and search for the live ProfileGuard doc_id."""
+    # Find all <script src=...> tags (lazy chunks, not just preloads)
+    script_srcs = re.findall(r'<script[^>]+src="(https://z-m-static[^"]+\.js[^"]*)"', page_html)
+    preload_srcs = re.findall(r'href="(https://z-m-static[^"]+\.js[^"]*)"', page_html)
+    all_srcs = list(set(script_srcs + preload_srcs))
+    logs.append(f"[INFO] Scanning {len(all_srcs)} JS bundles for guard doc_id")
+    for url in all_srcs[:6]:
+        try:
+            rb = requests.get(url, timeout=15)
+            body = rb.text
+            # Search for doc_id near any guard-related keyword
+            for kw in ["profileGuard", "profile_guard", "ProfileGuard", "PROFILE_GUARD", "profile_picture_guard"]:
+                for m in re.finditer(kw, body, re.I):
+                    snippet = body[max(0, m.start()-300):m.start()+300]
+                    ids = re.findall(r'"(\d{13,20})"', snippet)
+                    for did in ids:
+                        logs.append(f"[INFO] Found candidate doc_id near {kw}: {did}")
+                        return did
+        except Exception as e:
+            logs.append(f"[WARN] Bundle scan {url[:60]}: {e}")
+    return ""
+
+
 def do_guard(cookie: str, enable: bool = True) -> dict:
     logs = []
     uid = _uid_from_cookie(cookie)
     fb_dtsg, uid, _, authenticated, auth_html = _get_auth(cookie, logs)
     action_word = "Enabling" if enable else "Disabling"
-    logs.append(f"[INFO] {action_word} profile guard for {uid}")
+    logs.append(f"[INFO] {action_word} profile guard for UID {uid}")
     if not fb_dtsg or not authenticated:
-        return {"ok": True, "success": False, "message": "❌ Cookie invalid or expired — re-export from facebook.com", "logs": logs}
+        return {"ok": True, "success": False,
+                "message": "❌ Cookie invalid or expired — re-export from facebook.com",
+                "logs": logs}
 
     s = make_cf_session(cookie)
+    sm = make_cf_session(cookie, mobile=True)
     guard_val = "1" if enable else "0"
 
-    # Method 1: Dynamic doc_id scan from settings page
+    lsd = ""
+    if auth_html:
+        lm = re.search(r'"LSD",\[\],\{"token":"([^"]+)"', auth_html)
+        if lm:
+            lsd = lm.group(1)
+
+    # ── Method 1: mbasic guard page (direct form submit) ─────────────────────
     try:
-        rset = s.get("https://www.facebook.com/settings?tab=profile", timeout=16)
-        logs.append(f"[INFO] Settings page → {rset.status_code} ({len(rset.text)}B)")
-        if rset.status_code == 200:
-            page = rset.text
-            # Scan for doc_ids near PROFILE_GUARD in page bundle
-            candidates = re.findall(
-                r'"doc_id"\s*:\s*"?(\d{15,19})"?[^}]{0,400}?PROFILE.GUARD', page)
-            if not candidates:
-                candidates = re.findall(
-                    r'PROFILE.GUARD[^}]{0,400}?"doc_id"\s*:\s*"?(\d{15,19})"?', page)
-            if not candidates:
-                # Scan for privacy mutation doc_ids in bundle chunks
-                candidates = re.findall(
-                    r'setPrivacySetting[^}]{0,600}?doc_id[^:]*:\s*"?(\d{15,19})"?', page)
-            logs.append(f"[DEBUG] Scanned candidates: {candidates[:4]}")
-            for doc_id in candidates[:3]:
+        mob_hdr = {"User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+                   "Accept-Language": "en-US,en;q=0.9"}
+        # Try the guard-specific pages
+        guard_pages = [
+            f"https://mbasic.facebook.com/profile.php?id={uid}&action=profile_picture_guard",
+            "https://mbasic.facebook.com/settings/?section=privacy",
+            "https://mbasic.facebook.com/settings/",
+            f"https://mbasic.facebook.com/{uid}/pictures/",
+        ]
+        for gurl in guard_pages:
+            try:
+                rg = sm.get(gurl, headers=mob_hdr, timeout=13)
+                forms = re.findall(r'<form[^>]+action="([^"]+)"[^>]*>(.*?)</form>', rg.text, re.S)
+                for furl, fbody in forms:
+                    if any(k in furl.lower() or k in fbody.lower()
+                           for k in ["guard", "privacy", "profile_guard"]):
+                        hidden = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', fbody))
+                        hidden["fb_dtsg"] = fb_dtsg
+                        hidden["__user"] = uid
+                        act = furl.replace("&amp;", "&")
+                        if not act.startswith("http"):
+                            act = "https://mbasic.facebook.com" + act
+                        rp = sm.post(act, data=hidden, headers=mob_hdr, timeout=12)
+                        logs.append(f"[DEBUG] mbasic guard form → {rp.status_code}")
+                        if rp.status_code in (200, 302):
+                            # Check for success indicators
+                            if "guard" in rp.text.lower() or rp.status_code == 302:
+                                logs.append("[OK] Guard set via mbasic form ✓")
+                                msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                                return {"ok": True, "success": True, "message": msg, "logs": logs}
+            except Exception as ex:
+                logs.append(f"[WARN] mbasic {gurl}: {ex}")
+    except Exception as e:
+        logs.append(f"[WARN] mbasic method: {e}")
+
+    # ── Method 2: JS bundle scanning for live doc_id ─────────────────────────
+    try:
+        guard_page = sm.get("https://m.facebook.com/privacy/touch/profile_picture_guard/",
+                            headers={"User-Agent": "Mozilla/5.0 (Linux; Android 13) Chrome/120 Mobile Safari/537.36"},
+                            timeout=15)
+        live_doc_id = _scan_js_for_guard_docid(requests, guard_page.text, logs)
+        if live_doc_id:
+            for var_fmt in [
+                {"input": {"actor_id": uid, "client_mutation_id": _rand(), "value": guard_val, "privacy_setting": "PROFILE_GUARD"}},
+                {"input": {"actor_id": uid, "client_mutation_id": _rand(), "guard_enabled": enable}},
+                {"input": {"actor_id": uid, "client_mutation_id": _rand(), "enabled": enable}},
+            ]:
                 try:
                     r2 = s.post("https://www.facebook.com/api/graphql/", data={
-                        "fb_dtsg": fb_dtsg,
-                        "variables": json.dumps({"input": {
-                            "actor_id": uid, "privacy_setting": "PROFILE_GUARD",
-                            "value": guard_val, "client_mutation_id": _rand(),
-                        }}),
-                        "doc_id": doc_id, "__a": "1", "__user": uid,
+                        "fb_dtsg": fb_dtsg, "__user": uid, "__a": "1",
+                        "doc_id": live_doc_id,
+                        "variables": json.dumps(var_fmt),
                     }, timeout=12)
-                    logs.append(f"[DEBUG] Guard doc_id {doc_id} → {r2.status_code}: {r2.text[:80]}")
-                    if r2.status_code == 200 and '"errors"' not in r2.text and len(r2.text) > 30:
-                        logs.append("[OK] Profile guard set via GraphQL (dynamic) ✓")
+                    logs.append(f"[DEBUG] Live doc_id {live_doc_id}: {r2.status_code} → {r2.text[:80]}")
+                    if r2.status_code == 200 and '"errors"' not in r2.text and "not found" not in r2.text.lower() and len(r2.text) > 40:
+                        logs.append("[OK] Guard set via live doc_id ✓")
                         msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
                         return {"ok": True, "success": True, "message": msg, "logs": logs}
-                except Exception as ex:
-                    logs.append(f"[WARN] doc_id {doc_id}: {ex}")
+                except Exception:
+                    pass
     except Exception as e:
-        logs.append(f"[WARN] Settings page scan: {e}")
+        logs.append(f"[WARN] Bundle scan method: {e}")
 
-    # Method 2: Privacy-specific REST endpoint
-    for ep_action in (["enable"] if enable else ["disable"]):
-        for base in ["https://www.facebook.com/privacy/settings/profile_guard/",
-                     "https://www.facebook.com/privacy/specific/profile_guard/"]:
-            try:
-                ep = f"{base}{ep_action}/"
-                r = s.post(ep, data={
-                    "fb_dtsg": fb_dtsg, "__user": uid, "__a": "1",
-                    "lsd": re.search(r'"LSD"[^}]*"token"\s*:\s*"([^"]+)"', auth_html or "").group(1)
-                    if auth_html and '"LSD"' in auth_html else "",
-                }, timeout=12)
-                logs.append(f"[DEBUG] Privacy REST {ep} → {r.status_code}: {r.text[:80]}")
-                if r.status_code in (200, 302):
-                    resp = r.text.lower()
-                    if '"error"' not in resp and "not found" not in resp:
-                        logs.append("[OK] Profile guard set via privacy REST ✓")
+    # ── Method 3: Photo-ID based mutation (most common Filipino tool approach) ─
+    photo_id = _get_profile_photo_id(s, uid, logs)
+    if photo_id:
+        for doc_id in [
+            "3868904606491881", "5095811730442218", "6043175359085756",
+            "4134075133319397", "5221685174560924", "6628564843836870",
+        ]:
+            for var in [
+                {"input": {"actor_id": uid, "client_mutation_id": _rand(), "profile_photo_id": photo_id, "should_set_profile_guard": enable, "privacy": {"base_state": "EVERYONE", "allow": [], "deny": []}}},
+                {"input": {"actor_id": uid, "client_mutation_id": _rand(), "photo_id": photo_id, "guard_enabled": enable}},
+            ]:
+                try:
+                    r3 = s.post("https://www.facebook.com/api/graphql/", data={
+                        "fb_dtsg": fb_dtsg, "__user": uid, "__a": "1",
+                        "doc_id": doc_id, "variables": json.dumps(var),
+                    }, timeout=10)
+                    if (r3.status_code == 200
+                            and '"errors"' not in r3.text
+                            and "not found" not in r3.text.lower()
+                            and len(r3.text) > 40):
+                        logs.append(f"[OK] Guard via photo mutation {doc_id} ✓")
                         msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
                         return {"ok": True, "success": True, "message": msg, "logs": logs}
-            except Exception as e:
-                logs.append(f"[WARN] Privacy REST: {e}")
+                except Exception:
+                    pass
 
-    # Method 3: Try alternate mutation variable formats
-    for fmt in [
-        {"profile_guard_enabled": enable},
-        {"enabled": enable, "feature": "PROFILE_GUARD"},
+    # ── Method 4: Privacy REST endpoints ─────────────────────────────────────
+    ep_action = "enable" if enable else "disable"
+    for ep in [
+        f"https://www.facebook.com/privacy/settings/profile_guard/{ep_action}/",
+        f"https://www.facebook.com/profile_guard/{ep_action}/",
+        f"https://www.facebook.com/ajax/profile/picture_guard/{ep_action}/",
     ]:
-        for doc_id in ["4134075133319397", "3734556693315868", "6594053617363001"]:
+        try:
+            r4 = s.post(ep, data={"fb_dtsg": fb_dtsg, "__user": uid, "__a": "1", "lsd": lsd}, timeout=10)
+            logs.append(f"[DEBUG] REST {ep} → {r4.status_code}: {r4.text[:60]}")
+            if r4.status_code in (200, 302) and "not found" not in r4.text.lower() and "error" not in r4.text.lower()[:50]:
+                logs.append("[OK] Guard set via REST endpoint ✓")
+                msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+                return {"ok": True, "success": True, "message": msg, "logs": logs}
+        except Exception:
+            pass
+
+    # ── Method 5: Privacy setting mutations with broad variable sweep ─────────
+    for doc_id in ["4134075133319397", "3734556693315868", "6594053617363001",
+                   "5489748184424761", "7263150730374991"]:
+        for var in [
+            {"input": {"actor_id": uid, "client_mutation_id": _rand(), "value": guard_val, "privacy_setting": "PROFILE_GUARD"}},
+            {"input": {"actor_id": uid, "client_mutation_id": _rand(), "profile_guard_enabled": enable}},
+            {"input": {"actor_id": uid, "client_mutation_id": _rand(), "enabled": enable, "feature": "PROFILE_GUARD"}},
+        ]:
             try:
-                r = s.post("https://www.facebook.com/api/graphql/", data={
-                    "fb_dtsg": fb_dtsg,
-                    "variables": json.dumps({"input": {**fmt, "actor_id": uid, "client_mutation_id": _rand()}}),
-                    "doc_id": doc_id, "__a": "1", "__user": uid,
-                }, timeout=10)
-                if r.status_code == 200 and '"errors"' not in r.text and "not found" not in r.text and len(r.text) > 30:
-                    logs.append(f"[OK] Guard via alt mutation {doc_id} ✓")
+                r5 = s.post("https://www.facebook.com/api/graphql/", data={
+                    "fb_dtsg": fb_dtsg, "__user": uid, "__a": "1",
+                    "doc_id": doc_id, "variables": json.dumps(var),
+                }, timeout=9)
+                if (r5.status_code == 200
+                        and '"errors"' not in r5.text
+                        and "not found" not in r5.text.lower()
+                        and len(r5.text) > 40):
+                    logs.append(f"[OK] Guard via sweep {doc_id} ✓")
                     msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
                     return {"ok": True, "success": True, "message": msg, "logs": logs}
             except Exception:
                 pass
 
-    # Method 4: mbasic profile guard via settings form
-    try:
-        sm = make_cf_session(cookie, mobile=True)
-        rm = sm.get("https://mbasic.facebook.com/settings?section=privacy", timeout=14)
-        logs.append(f"[DEBUG] mbasic privacy → {rm.status_code} ({len(rm.text)}B)")
-        if rm.status_code == 200:
-            guard_links = re.findall(r'href="([^"]*(?:guard|profile_guard)[^"]*)"', rm.text, re.I)
-            logs.append(f"[DEBUG] Guard links: {guard_links[:3]}")
-            for link in guard_links[:2]:
-                if not link.startswith("http"):
-                    link = "https://mbasic.facebook.com" + link
-                rg = sm.get(link, timeout=12)
-                forms = re.findall(r'<form[^>]+action="([^"]*)"[^>]*>(.*?)</form>', rg.text, re.S)
-                for furl, fbody in forms[:3]:
-                    hidden = dict(re.findall(r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"', fbody))
-                    hidden.setdefault("fb_dtsg", fb_dtsg)
-                    if not furl.startswith("http"):
-                        furl = "https://mbasic.facebook.com" + furl
-                    rp = sm.post(furl.replace("&amp;", "&"), data=hidden, timeout=12)
-                    logs.append(f"[DEBUG] mbasic guard form → {rp.status_code}")
-                    if rp.status_code in (200, 302):
-                        logs.append("[OK] Profile guard set via mbasic form ✓")
-                        msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
-                        return {"ok": True, "success": True, "message": msg, "logs": logs}
-    except Exception as e:
-        logs.append(f"[WARN] mbasic guard: {e}")
-
-    return {"ok": True, "success": False,
-            "message": "❌ Guard failed — Facebook updated their API. Enable manually at facebook.com → Settings → Profile Picture Guard", "logs": logs}
+    return {
+        "ok": True, "success": False,
+        "message": (
+            "❌ Guard API unavailable — Facebook removed all public endpoints for this feature.\n"
+            "➡ Manual: Open Facebook → Profile → Tap your photo → ⋯ → Turn on Profile Guard"
+        ),
+        "logs": logs,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════

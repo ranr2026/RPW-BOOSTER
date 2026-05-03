@@ -166,7 +166,7 @@ router.get("/accounts", async (_req: Request, res: Response) => {
 
 router.patch("/accounts/:uid", async (req: Request, res: Response) => {
   try {
-    const { uid } = req.params;
+    const uid = String(req.params.uid);
     const { active } = req.body as { active: boolean };
     await toggleAccount(uid, Boolean(active));
     return res.json({ success: true });

@@ -23,7 +23,7 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 
 ## RPW BOOSTER — Facebook Multi-Tool Suite
 
-Running at `/lara/`. Branding: **RPW BOOSTER v1.5.1** with Zap icon, dark navy design, purple-pink gradients.
+Running at `/lara/`. Branding: **RPW BOOSTER v1.5.1** with Zap icon, Monokai Toolkit dark theme, purple-pink gradients, dark/light mode toggle in navbar.
 
 ### Architecture
 

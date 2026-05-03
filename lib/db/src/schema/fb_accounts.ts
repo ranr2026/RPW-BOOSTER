@@ -13,6 +13,15 @@ export const fbAccountsTable = pgTable("fb_accounts", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertFbAccountSchema = createInsertSchema(fbAccountsTable).omit({ id: true, createdAt: true });
-export type InsertFbAccount = z.infer<typeof insertFbAccountSchema>;
+const _insertBase = createInsertSchema(fbAccountsTable).omit({ id: true, createdAt: true });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const insertFbAccountSchema = _insertBase as unknown as z.ZodType<any>;
+export type InsertFbAccount = {
+  uid: string;
+  name?: string;
+  avatar?: string;
+  cookie: string;
+  active?: boolean;
+  lastUsed?: Date | null;
+};
 export type FbAccount = typeof fbAccountsTable.$inferSelect;
