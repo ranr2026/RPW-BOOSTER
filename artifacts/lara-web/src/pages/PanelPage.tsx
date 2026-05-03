@@ -6,113 +6,111 @@ interface Props {
   onLogout: () => void;
 }
 
-const TOOLS: { id: Tool; icon: string; label: string; desc: string; color: string }[] = [
-  { id: "react",   icon: "❤️", label: "Auto React",    desc: "React to posts automatically",  color: "#ef4444" },
-  { id: "share",   icon: "📤", label: "Spam Share",    desc: "Share posts multiple times",    color: "#3b82f6" },
-  { id: "comment", icon: "💬", label: "Mass Comment",  desc: "Post bulk comments",            color: "#22c55e" },
-  { id: "token",   icon: "🔑", label: "Access Token",  desc: "Extract your access token",    color: "#f59e0b" },
-  { id: "guard",   icon: "🛡️", label: "Profile Guard", desc: "Enable/disable profile guard", color: "#a855f7" },
+const TOOLS: { id: Tool; icon: string; label: string; desc: string; color: string; bg: string }[] = [
+  { id: "react",   icon: "❤️", label: "Auto React",    desc: "React to any post with 6 reaction types",  color: "#ef4444", bg: "rgba(239,68,68,0.12)" },
+  { id: "share",   icon: "📤", label: "Spam Share",    desc: "Share a post multiple times quickly",       color: "#3b82f6", bg: "rgba(59,130,246,0.12)" },
+  { id: "comment", icon: "💬", label: "Mass Comment",  desc: "Post bulk comments from a list",            color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
+  { id: "token",   icon: "🔑", label: "Access Token",  desc: "Extract EAAG access token from cookie",    color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
+  { id: "guard",   icon: "🛡️", label: "Profile Guard", desc: "Enable or disable Facebook profile guard", color: "#a855f7", bg: "rgba(168,85,247,0.12)" },
 ];
 
 export default function PanelPage({ profile, onSelect, onLogout }: Props) {
   const isAuth = profile.authenticated;
-  const isGenericName = profile.name.startsWith("User ");
+  const displayName = profile.name.startsWith("User ") ? `UID ${profile.uid}` : profile.name;
 
   return (
-    <div style={{ minHeight: "100vh", padding: "0 0 32px" }}>
-      {/* Header */}
+    <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
+      {/* Header hero */}
       <div style={{
-        background: "linear-gradient(180deg, rgba(124,58,237,0.2) 0%, transparent 100%)",
-        padding: "48px 24px 24px",
+        background: "linear-gradient(180deg, rgba(139,92,246,0.15) 0%, transparent 100%)",
+        padding: "52px 24px 28px",
         textAlign: "center",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        position: "relative",
       }}>
-        <div style={{ position: "relative", display: "inline-block", marginBottom: 12 }}>
-          <img
-            src={profile.avatar}
-            alt={profile.name}
-            style={{ width: 80, height: 80, borderRadius: "50%", border: "3px solid rgba(124,58,237,0.6)", objectFit: "cover", display: "block" }}
-            onError={e => {
-              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.name)}&background=7c3aed&color=fff&size=80`;
-            }}
-          />
+        {/* Avatar */}
+        <div style={{ position: "relative", display: "inline-block", marginBottom: 14 }}>
           <div style={{
-            position: "absolute", bottom: 2, right: 2,
-            width: 18, height: 18, borderRadius: "50%",
+            width: 88, height: 88, borderRadius: "50%", overflow: "hidden",
+            border: "3px solid rgba(139,92,246,0.7)",
+            boxShadow: "0 0 30px rgba(139,92,246,0.3)",
+            background: "rgba(139,92,246,0.2)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <img
+              src={profile.avatar}
+              alt={displayName}
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+              onError={e => {
+                const el = e.target as HTMLImageElement;
+                el.style.display = "none";
+                el.parentElement!.querySelector(".avatar-initial")?.removeAttribute("hidden");
+              }}
+            />
+            <span className="avatar-initial" hidden style={{ fontSize: 36, fontWeight: 700, color: "#fff" }}>
+              {displayName.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <div style={{
+            position: "absolute", bottom: 3, right: 3,
+            width: 20, height: 20, borderRadius: "50%",
             background: isAuth ? "#22c55e" : "#f59e0b",
-            border: "2px solid var(--lara-bg2)",
+            border: "2.5px solid #0f0c1e",
+            boxShadow: isAuth ? "0 0 8px rgba(34,197,94,0.6)" : "none",
           }} />
         </div>
-        <h2 style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 4 }}>
-          {isGenericName ? `UID ${profile.uid}` : profile.name}
-        </h2>
-        <p style={{ fontSize: 12, color: "var(--lara-muted)" }}>UID: {profile.uid}</p>
 
-        {/* Auth status */}
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{displayName}</h2>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginBottom: 14 }}>UID: {profile.uid}</p>
+
+        {/* Auth badge */}
         {isAuth ? (
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
-            background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)",
-            borderRadius: 20, padding: "4px 14px",
-          }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block" }} />
-            <span style={{ fontSize: 12, color: "#4ade80", fontWeight: 500 }}>Fully Authenticated</span>
-          </div>
+          <span className="badge badge-success">
+            <span className="dot dot-green dot-pulse" />
+            Authenticated
+          </span>
         ) : (
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10,
-            background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",
-            borderRadius: 20, padding: "4px 14px",
-          }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", display: "inline-block" }} />
-            <span style={{ fontSize: 12, color: "#fbbf24", fontWeight: 500 }}>Cookie Active — Limited Auth</span>
-          </div>
+          <span className="badge badge-warning">
+            <span className="dot dot-yellow" />
+            Cookie Active · Limited Auth
+          </span>
         )}
 
         {!isAuth && (
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 8, lineHeight: 1.5, padding: "0 20px" }}>
-            Server couldn't verify session with Facebook (IP restriction or invalid cookie). Tools will attempt actions — results depend on cookie validity.
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 10, lineHeight: 1.6, padding: "0 16px" }}>
+            Server couldn't verify fb_dtsg — your account may have a checkpoint. Resolve it at facebook.com then re-login.
           </p>
         )}
       </div>
 
       {/* Tools */}
-      <div style={{ padding: "24px 20px" }}>
-        <p style={{ fontSize: 12, fontWeight: 600, color: "var(--lara-muted)", marginBottom: 16, letterSpacing: "0.08em" }}>TOOLS</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: "20px 16px 0" }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.3)", marginBottom: 12, letterSpacing: "0.1em", paddingLeft: 4 }}>TOOLS</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {TOOLS.map(t => (
             <button
               key={t.id}
               onClick={() => onSelect(t.id)}
-              className="lara-card active-press"
-              style={{
-                display: "flex", alignItems: "center", gap: 16,
-                padding: "16px 18px", textAlign: "left",
-                width: "100%", cursor: "pointer",
-                transition: "all 0.15s",
-              }}
+              className="lara-card tool-card active-press"
+              style={{ borderRadius: 14 }}
             >
-              <div style={{
-                width: 48, height: 48, borderRadius: 14, flexShrink: 0,
-                background: `${t.color}20`, border: `1px solid ${t.color}35`,
-                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22,
-              }}>
+              <div className="tool-icon" style={{ background: t.bg, border: `1px solid ${t.color}30` }}>
                 {t.icon}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: "#fff" }}>{t.label}</div>
-                <div style={{ fontSize: 12, color: "var(--lara-muted)", marginTop: 2 }}>{t.desc}</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{t.desc}</div>
               </div>
-              <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 18 }}>›</div>
+              <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 20, fontWeight: 300 }}>›</div>
             </button>
           ))}
         </div>
 
-        <button onClick={onLogout} className="lara-btn lara-btn-danger" style={{ width: "100%", marginTop: 24 }}>
+        <button onClick={onLogout} className="lara-btn lara-btn-danger" style={{ marginTop: 24 }}>
           🚪 Switch Account
         </button>
 
-        <p style={{ textAlign: "center", color: "rgba(255,255,255,0.15)", fontSize: 11, marginTop: 20 }}>
+        <p style={{ textAlign: "center", color: "rgba(255,255,255,0.1)", fontSize: 11, marginTop: 20 }}>
           Lara v1.5.1 • Use at your own risk
         </p>
       </div>
