@@ -12,3 +12,9 @@ id = "g0mihR_5gaNBdoT7-HrjC"
 uri = "file://premium_tools_v6.zip"
 type = "unspecified"
 title = "Vern Premium Tools v6 — Complete Suite"
+
+[[outputs]]
+id = "raCpqy2LgW7ZrDoRaaCDY"
+uri = "file://premium_tools_v8.zip"
+type = "unspecified"
+title = "VERN PREMIUM TOOLS v8 — Lara APK Edition"
