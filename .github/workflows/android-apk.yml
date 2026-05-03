@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Build type (debug or release)'
-        required: false
-        default: 'debug'
 
 jobs:
   build-apk:
@@ -37,7 +32,8 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install workspace dependencies
+      - name: Install mobile dependencies
+        working-directory: artifacts/rpw-mobile
         run: pnpm install --frozen-lockfile
 
       - name: Expo Prebuild (Android native project)
@@ -77,10 +73,3 @@ jobs:
           path: artifacts/rpw-mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
         continue-on-error: true
-
-      - name: APK build summary
-        run: |
-          echo "## APK Build Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- Debug APK: RPW-BOOSTER-debug-${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Download from the Actions tab > Artifacts" >> $GITHUB_STEP_SUMMARY
