@@ -16,6 +16,8 @@ export interface FbProfile {
   name: string;
   avatar: string;
   fb_dtsg: string;
+  token?: string;
+  authenticated?: boolean;
 }
 
 export interface ActionResult {
@@ -29,6 +31,7 @@ export interface TokenResult {
   token: string;
   uid: string;
   expires: string;
+  logs?: string[];
 }
 
 export const api = {

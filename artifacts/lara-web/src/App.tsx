@@ -13,6 +13,8 @@ export interface Profile {
   name: string;
   avatar: string;
   fb_dtsg: string;
+  token?: string;
+  authenticated?: boolean;
   cookie: string;
 }
 
@@ -38,7 +40,7 @@ function App() {
       case "comment":  return <CommentPage profile={profile} onBack={() => setTool("panel")} />;
       case "token":    return <TokenPage profile={profile} onBack={() => setTool("panel")} />;
       case "guard":    return <GuardPage profile={profile} onBack={() => setTool("panel")} />;
-      default:         return <PanelPage profile={profile} onSelect={setTool} onLogout={() => setProfile(null)} />;
+      default:         return <PanelPage profile={profile} onSelect={setTool} onLogout={() => { setProfile(null); setTool("panel"); }} />;
     }
   };
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Profile } from "@/App";
 import { api } from "@/lib/api";
+import LogWindow from "@/components/LogWindow";
 import { showToast } from "@/components/Toaster";
 
 interface Props { profile: Profile; onBack: () => void; }
@@ -9,19 +10,27 @@ export default function TokenPage({ profile, onBack }: Props) {
   const [loading, setLoading] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [uid, setUid] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
 
   async function handleGetToken() {
     setLoading(true);
     setToken(null);
+    setLogs([]);
     try {
       const res = await api.token(profile.cookie);
-      setToken(res.token);
-      setUid(res.uid);
-      showToast("Access token extracted!", "success");
+      setLogs(res.logs || []);
+      if (res.token) {
+        setToken(res.token);
+        setUid(res.uid);
+        showToast("Access token extracted!", "success");
+      } else {
+        showToast("Token not found — cookie may be invalid or FB is blocking server", "error");
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast(msg, "error");
+      setLogs(prev => [...prev, `[FAIL] ${msg}`]);
     } finally {
       setLoading(false);
     }
@@ -37,7 +46,12 @@ export default function TokenPage({ profile, onBack }: Props) {
 
   return (
     <div style={{ minHeight: "100vh", padding: "0 0 32px" }}>
-      <Header title="Access Token" emoji="🔑" onBack={onBack} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "48px 20px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <button onClick={onBack} style={{ background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: 10, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>‹</button>
+        <span style={{ fontSize: 22 }}>🔑</span>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>Access Token</h2>
+      </div>
+
       <div style={{ padding: "20px 20px 0" }}>
         <ProfileBadge profile={profile} />
 
@@ -45,11 +59,11 @@ export default function TokenPage({ profile, onBack }: Props) {
           <div style={{ fontSize: 48, marginBottom: 12 }}>🔑</div>
           <h3 style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 8 }}>Extract Access Token</h3>
           <p style={{ fontSize: 13, color: "var(--lara-muted)", lineHeight: 1.6 }}>
-            Get your Facebook access token from your active session. This can be used with the Graph API.
+            Extract your EAAG Facebook access token from your active session. Required for Graph API calls.
           </p>
         </div>
 
-        {token && (
+        {token ? (
           <div className="lara-card" style={{ padding: 16, marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--lara-muted)" }}>ACCESS TOKEN</span>
@@ -75,28 +89,20 @@ export default function TokenPage({ profile, onBack }: Props) {
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
-        <button className="lara-btn lara-btn-primary" onClick={handleGetToken} disabled={loading}>
+        <LogWindow logs={logs} />
+
+        <button className="lara-btn lara-btn-primary" style={{ marginTop: 16 }} onClick={handleGetToken} disabled={loading}>
           {loading ? <Spinner /> : <>🔑 Get Access Token</>}
         </button>
 
         <div className="lara-card" style={{ marginTop: 16, padding: 14 }}>
           <p style={{ fontSize: 12, color: "var(--lara-muted)", lineHeight: 1.6 }}>
-            ℹ️ The access token is extracted from your active Facebook session. Keep it secret — anyone with your token can access your account.
+            ℹ️ Token extraction requires a valid active cookie with a logged-in session. Keep your token secret — it grants full access to your account.
           </p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Header({ title, emoji, onBack }: { title: string; emoji: string; onBack: () => void }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "48px 20px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-      <button onClick={onBack} style={{ background: "rgba(255,255,255,0.08)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: 10, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>‹</button>
-      <span style={{ fontSize: 22 }}>{emoji}</span>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{title}</h2>
     </div>
   );
 }

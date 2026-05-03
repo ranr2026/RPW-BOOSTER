@@ -1,22 +1,31 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { parseCookie, extractFbDtsg, extractUid, getProfile, addReaction, sharePost, addComment, enableGuard, getAccessToken } from "../lib/facebook.js";
+import {
+  getProfile,
+  addReaction,
+  sharePost,
+  addComment,
+  getAccessToken,
+  enableGuard,
+} from "../lib/facebook.js";
 
 const router: IRouter = Router();
 
 router.post("/login", async (req: Request, res: Response) => {
   try {
     const { cookie } = req.body as { cookie: string };
-    if (!cookie) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie is required" });
-
-    const jar = parseCookie(cookie);
-    const fb_dtsg = await extractFbDtsg(jar);
-    const uid = await extractUid(jar);
-    if (!uid) return res.status(400).json({ error: "INVALID_COOKIE", message: "Cookie is invalid or expired" });
-
-    const profile = await getProfile(jar, uid, fb_dtsg);
+    if (!cookie?.trim()) {
+      return res.status(400).json({ error: "MISSING_COOKIE", message: "Paste your Facebook cookie first" });
+    }
+    const profile = await getProfile(cookie.trim());
+    if (!profile.uid) {
+      return res.status(400).json({ error: "INVALID_COOKIE", message: "Could not extract UID — make sure you paste the full cookie including c_user and xs" });
+    }
     return res.json(profile);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Missing c_user") || msg.includes("Missing xs") || msg.includes("INVALID_COOKIE")) {
+      return res.status(400).json({ error: "INVALID_COOKIE", message: msg });
+    }
     return res.status(400).json({ error: "LOGIN_FAILED", message: msg });
   }
 });
@@ -26,24 +35,12 @@ router.post("/react", async (req: Request, res: Response) => {
     const { cookie, postUrl, reactionType, count = 1 } = req.body as {
       cookie: string; postUrl: string; reactionType: string; count?: number;
     };
-    if (!cookie || !postUrl || !reactionType) {
-      return res.status(400).json({ error: "MISSING_PARAMS", message: "cookie, postUrl, reactionType required" });
-    }
+    if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
+    if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
+    if (!reactionType) return res.status(400).json({ error: "MISSING_REACTION", message: "Reaction type required" });
 
-    const jar = parseCookie(cookie);
-    const fb_dtsg = await extractFbDtsg(jar);
-    const uid = await extractUid(jar);
-    if (!uid) return res.status(400).json({ error: "INVALID_COOKIE", message: "Cookie invalid" });
-
-    const logs: string[] = [];
-    let success = 0;
-
-    for (let i = 0; i < Math.min(count, 1); i++) {
-      const result = await addReaction(jar, fb_dtsg, uid, postUrl, reactionType, logs);
-      if (result) success++;
-    }
-
-    return res.json({ success: success > 0, count: success, message: success > 0 ? `Reacted with ${reactionType}` : "Reaction failed", logs });
+    const result = await addReaction(cookie.trim(), postUrl.trim(), reactionType);
+    return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "REACT_FAILED", message: msg });
@@ -53,24 +50,11 @@ router.post("/react", async (req: Request, res: Response) => {
 router.post("/share", async (req: Request, res: Response) => {
   try {
     const { cookie, postUrl, count = 1 } = req.body as { cookie: string; postUrl: string; count?: number };
-    if (!cookie || !postUrl) {
-      return res.status(400).json({ error: "MISSING_PARAMS", message: "cookie and postUrl required" });
-    }
+    if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
+    if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
 
-    const jar = parseCookie(cookie);
-    const fb_dtsg = await extractFbDtsg(jar);
-    const uid = await extractUid(jar);
-    if (!uid) return res.status(400).json({ error: "INVALID_COOKIE", message: "Cookie invalid" });
-
-    const logs: string[] = [];
-    let shared = 0;
-
-    for (let i = 0; i < Math.min(count, 20); i++) {
-      const ok = await sharePost(jar, fb_dtsg, uid, postUrl, logs);
-      if (ok) shared++;
-    }
-
-    return res.json({ success: shared > 0, count: shared, message: `Shared ${shared}/${count} times`, logs });
+    const result = await sharePost(cookie.trim(), postUrl.trim(), Math.min(Number(count) || 1, 20));
+    return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "SHARE_FAILED", message: msg });
@@ -82,25 +66,12 @@ router.post("/comment", async (req: Request, res: Response) => {
     const { cookie, postUrl, comments, count = 1 } = req.body as {
       cookie: string; postUrl: string; comments: string[]; count?: number;
     };
-    if (!cookie || !postUrl || !comments?.length) {
-      return res.status(400).json({ error: "MISSING_PARAMS", message: "cookie, postUrl, comments required" });
-    }
+    if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
+    if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
+    if (!comments?.length) return res.status(400).json({ error: "MISSING_COMMENTS", message: "At least one comment required" });
 
-    const jar = parseCookie(cookie);
-    const fb_dtsg = await extractFbDtsg(jar);
-    const uid = await extractUid(jar);
-    if (!uid) return res.status(400).json({ error: "INVALID_COOKIE", message: "Cookie invalid" });
-
-    const logs: string[] = [];
-    let commented = 0;
-
-    for (let i = 0; i < Math.min(count, 20); i++) {
-      const text = comments[i % comments.length];
-      const ok = await addComment(jar, fb_dtsg, uid, postUrl, text, logs);
-      if (ok) commented++;
-    }
-
-    return res.json({ success: commented > 0, count: commented, message: `Commented ${commented}/${count} times`, logs });
+    const result = await addComment(cookie.trim(), postUrl.trim(), comments, Math.min(Number(count) || 1, 20));
+    return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "COMMENT_FAILED", message: msg });
@@ -110,14 +81,10 @@ router.post("/comment", async (req: Request, res: Response) => {
 router.post("/token", async (req: Request, res: Response) => {
   try {
     const { cookie } = req.body as { cookie: string };
-    if (!cookie) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
+    if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
 
-    const jar = parseCookie(cookie);
-    const uid = await extractUid(jar);
-    if (!uid) return res.status(400).json({ error: "INVALID_COOKIE", message: "Cookie invalid" });
-
-    const token = await getAccessToken(jar);
-    return res.json({ token, uid, expires: "N/A" });
+    const result = await getAccessToken(cookie.trim());
+    return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "TOKEN_FAILED", message: msg });
@@ -127,17 +94,10 @@ router.post("/token", async (req: Request, res: Response) => {
 router.post("/guard", async (req: Request, res: Response) => {
   try {
     const { cookie, enable = true } = req.body as { cookie: string; enable?: boolean };
-    if (!cookie) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
+    if (!cookie?.trim()) return res.status(400).json({ error: "MISSING_COOKIE", message: "Cookie required" });
 
-    const jar = parseCookie(cookie);
-    const fb_dtsg = await extractFbDtsg(jar);
-    const uid = await extractUid(jar);
-    if (!uid) return res.status(400).json({ error: "INVALID_COOKIE", message: "Cookie invalid" });
-
-    const logs: string[] = [];
-    const ok = await enableGuard(jar, fb_dtsg, uid, enable, logs);
-    const action = enable ? "enabled" : "disabled";
-    return res.json({ success: ok, message: ok ? `Profile guard ${action}` : `Failed to ${action} profile guard`, logs });
+    const result = await enableGuard(cookie.trim(), Boolean(enable));
+    return res.json(result);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "GUARD_FAILED", message: msg });
