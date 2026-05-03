@@ -11,110 +11,89 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
+- **Database**: PostgreSQL + Drizzle ORM (`lib/db`)
+- **Validation**: Zod, `drizzle-zod`
 - **Build**: esbuild (CJS bundle)
 
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/db run push` — push DB schema changes
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## RPW BOOSTER — Facebook Multi-Tool Suite
 
-## Lara Web App
-
-A Facebook multi-tool suite clone (Lara v1.5.1) running at `/lara/`.
+Running at `/lara/`. Branding: **RPW BOOSTER v1.5.1** with Zap icon, dark navy design, purple-pink gradients.
 
 ### Architecture
 
 - **Frontend**: React + Vite at `artifacts/lara-web/` (serves at `/lara/`)
 - **Backend API**: Express + TypeScript at `artifacts/api-server/` (serves at `/api/`)
-- **FB Helper**: Python script at `artifacts/api-server/fb_helper.py` — handles all Facebook API calls
+- **FB Helper**: Python script at `artifacts/api-server/fb_helper.py` — all Facebook calls
+- **Database**: PostgreSQL via `lib/db` — `fb_accounts` table for saved cookies
 
-### Why Python for FB calls
+### Frontend Structure
 
-Facebook returns compressed/empty responses to server IPs when using `node-fetch`. Python's `requests` library handles gzip, redirects, and cookies correctly. The Node.js API server spawns `fb_helper.py` as a child process via `child_process.spawn`.
+- `App.tsx` — Layout with top navbar + slide-out sidebar (Sidebar.tsx) + per-tool routing
+- `components/Sidebar.tsx` — Slide-out drawer with all tool links + account count badge
+- `components/LogWindow.tsx` — Auto-scrolling log viewer for Python output
+- `pages/LoginPage.tsx` — RPW BOOSTER branding, cookie input, field detector
+- `pages/PanelPage.tsx` — Dashboard: profile hero, saved accounts stats, tool grid
+- `pages/ReactPage.tsx` — Reaction booster with toggle for "boost all accounts"
+- `pages/CommentPage.tsx` — Comment booster with texts×repeats customization
+- `pages/SharePage.tsx` — Share booster
+- `pages/TokenPage.tsx` — EAAG token extractor with copy button
+- `pages/GuardPage.tsx` — Profile guard toggle
 
-### Facebook API Architecture
+### Backend Endpoints
 
-All FB operations go through `artifacts/api-server/fb_helper.py` which:
-1. Parses cookies (Netscape format OR raw `key=value; key=value` string)
-2. Validates `c_user` + `xs` presence
-3. Attempts multiple fallback methods for each operation
-4. Returns JSON to stdout (read by Express)
-
-### Endpoints
-
-- `POST /api/fb/login` — validate cookie, extract UID/profile/avatar
-- `POST /api/fb/react` — add reaction (LIKE/LOVE/HAHA/WOW/SAD/ANGRY/CARE)
+- `POST /api/fb/login` — validate cookie, save account to DB, return profile
+- `POST /api/fb/react` — react with single cookie
+- `POST /api/fb/react/all` — react using ALL active saved accounts from DB
 - `POST /api/fb/share` — share post N times
-- `POST /api/fb/comment` — bulk comment on post
+- `POST /api/fb/comment` — comment with single cookie (count = texts × repeats)
+- `POST /api/fb/comment/all` — comment using ALL active saved accounts from DB
 - `POST /api/fb/token` — extract EAAG access token
 - `POST /api/fb/guard` — enable/disable profile guard
+- `GET /api/fb/accounts` — list all saved accounts
+- `PATCH /api/fb/accounts/:uid` — toggle active status
 
-### Cookie Behavior
+### Database Schema (`lib/db/src/schema/fb_accounts.ts`)
 
-- With valid cookies (real c_user+xs+datr+fr+sb from an active session): fb_dtsg is extracted, actions work
-- With invalid/fake cookies: UID extracted from c_user, name shows as "User {uid}", actions fail with clear error logs
-- Profile avatar always uses `graph.facebook.com/{uid}/picture?type=large` (302 redirect confirmed working)
+```sql
+fb_accounts (id, uid UNIQUE, name, avatar, cookie TEXT, active BOOL, last_used, created_at)
+```
 
-### Cookie Formats Supported
+- Accounts saved permanently on login via `saveAccount()` upsert
+- All active accounts used for bulk react/comment via `getActiveCookies()`
+- Toggle individual accounts active/inactive via `toggleAccount(uid, active)`
+
+### Python Helper Actions (`fb_helper.py`)
+
+Single-cookie actions: `login`, `react`, `share`, `comment`, `token`, `guard`
+Bulk actions (take `cookies: list`): `react_all`, `comment_all`
+
+### Reaction Bug Fix (v1.5.1)
+
+**Root cause**: `_REACT_DOC_CACHE["fb_id"]` was a global dict — different posts shared the same cached feedback_id, causing reactions to go to the wrong post silently.
+
+**Fix**: `_FB_ID_CACHE: dict = {}` keyed by `post_url`. Each post URL gets its own feedback_id cached independently. `_extract_compound_feedback_id` and `_react_graphql` both updated to use per-post caching.
+
+### Cookie Format Support
 
 ```
-# Netscape format (tab-separated, from browser extensions):
+# Netscape format (tab-separated):
 .facebook.com  TRUE  /  TRUE  0  c_user  61585216322349
-.facebook.com  TRUE  /  TRUE  0  xs      abc:def:2:ghi:123
 
-# Raw format:
+# Raw inline format:
 c_user=61585216322349; xs=abc:def; datr=xyz; fr=abc; sb=def
-
-# Newline-separated:
-c_user=61585216322349
-xs=abc:def:2:ghi:123
 ```
 
 ### Critical Facebook GraphQL Doc IDs (live, confirmed 2025-05)
 
-These are real Relay persisted query IDs discovered via FB's `rsrcMap` + deferred module registry:
+| Operation | Doc ID |
+|---|---|
+| `CometUFIFeedbackReactMutation` | `27045420388428225` |
+| `useCometUFICreateCommentMutation` | `26613344231661138` |
 
-| Operation | Doc ID | Notes |
-|---|---|---|
-| `CometUFIFeedbackReactMutation` | `27045420388428225` | Reaction mutation — bundle hash `3dbKC66` |
-| `useCometUFICreateCommentMutation` | `26613344231661138` | Comment mutation |
-
-**Reaction Type IDs** (from `CometUFIReactionsColors` bundle):
-- LIKE: `1635855486666999`
-- LOVE: `1678524932434102`
-- HAHA: `115940658764963`
-- WOW: `908563459236466`
-- ANGRY: `444813342392137`
-- CARE: `613557422527858`
-
-**How doc_id discovery works** (`_find_react_doc_id`):
-1. Parse all `rsrcMap` entries from FB home page inline scripts → short-hash → CDN URL map
-2. Parse all deferred module registrations (`"CometUFI*":{"r":[hashes]}`) → module → bundle hashes
-3. Fetch each bundle and search for `CometUFIFeedbackReactMutation_facebookRelayOperation` export
-4. Result cached 1 hour. Falls back to `_KNOWN_REACT_DOC_IDS` list.
-
-**Real compound feedback_id** must be extracted from the post page HTML (regex `"feedback_id":"(ZmVlZGJhY2s6[...])"`), NOT simple `base64("feedback:POST_ID")`.
-
-### Reaction Variables Format (WORKING — verified 2025-05)
-
-```json
-{
-  "input": {
-    "client_mutation_id": "random",
-    "actor_id": "UID",
-    "feedback_id": "ZmVlZGJhY2s6...compound...",
-    "feedback_reaction_id": "1635855486666999",
-    "action": "ADD_REACTION",
-    "useDefaultActor": false,
-    "reaction_style": null
-  }
-}
-```
+**Reaction Type IDs**: LIKE=`1635855486666999`, LOVE=`1678524932434102`, HAHA=`115940658764963`, WOW=`908563459236466`, ANGRY=`444813342392137`, CARE=`613557422527858`

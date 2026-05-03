@@ -6,6 +6,8 @@
 import { spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
+import { db, fbAccountsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HELPER_PATH = path.resolve(__dirname, "../fb_helper.py");
@@ -22,6 +24,8 @@ export interface FbProfile {
 export interface FbActionResult {
   success: boolean;
   count?: number;
+  total?: number;
+  succeeded?: number;
   message: string;
   logs: string[];
 }
@@ -31,6 +35,16 @@ export interface FbTokenResult {
   uid: string;
   expires: string;
   logs?: string[];
+}
+
+export interface FbAccount {
+  id: number;
+  uid: string;
+  name: string;
+  avatar: string;
+  active: boolean;
+  lastUsed: Date | null;
+  createdAt: Date;
 }
 
 async function callPython(input: Record<string, unknown>): Promise<unknown> {
@@ -136,5 +150,84 @@ export async function enableGuard(cookie: string, enable: boolean): Promise<FbAc
     success: result.success ?? false,
     message: result.message ?? "",
     logs: result.logs ?? [],
+  };
+}
+
+// ── Database account management ───────────────────────────────────────────────
+
+export async function saveAccount(uid: string, name: string, avatar: string, cookie: string): Promise<void> {
+  await db.insert(fbAccountsTable).values({ uid, name, avatar, cookie })
+    .onConflictDoUpdate({
+      target: fbAccountsTable.uid,
+      set: { name, avatar, cookie, lastUsed: new Date() },
+    });
+}
+
+export async function listAccounts(): Promise<FbAccount[]> {
+  return db.select({
+    id: fbAccountsTable.id,
+    uid: fbAccountsTable.uid,
+    name: fbAccountsTable.name,
+    avatar: fbAccountsTable.avatar,
+    active: fbAccountsTable.active,
+    lastUsed: fbAccountsTable.lastUsed,
+    createdAt: fbAccountsTable.createdAt,
+  }).from(fbAccountsTable).orderBy(fbAccountsTable.createdAt) as Promise<FbAccount[]>;
+}
+
+export async function toggleAccount(uid: string, active: boolean): Promise<void> {
+  await db.update(fbAccountsTable).set({ active }).where(eq(fbAccountsTable.uid, uid));
+}
+
+export async function getActiveCookies(): Promise<string[]> {
+  const rows = await db.select({ cookie: fbAccountsTable.cookie })
+    .from(fbAccountsTable)
+    .where(eq(fbAccountsTable.active, true));
+  return rows.map(r => r.cookie);
+}
+
+// ── Bulk operations using all saved accounts ──────────────────────────────────
+
+export async function reactAll(postUrl: string, reactionType: string): Promise<FbActionResult> {
+  const cookies = await getActiveCookies();
+  if (!cookies.length) {
+    return {
+      success: false,
+      message: "No saved accounts found. Login with at least one cookie first.",
+      logs: [],
+      total: 0,
+      succeeded: 0,
+    };
+  }
+  const result = await callPython({ action: "react_all", cookies, postUrl, reactionType }) as Record<string, unknown>;
+  return {
+    success: (result.success as boolean) ?? false,
+    count: (result.succeeded as number) ?? 0,
+    total: (result.total as number) ?? 0,
+    succeeded: (result.succeeded as number) ?? 0,
+    message: (result.message as string) ?? "",
+    logs: (result.logs as string[]) ?? [],
+  };
+}
+
+export async function commentAll(postUrl: string, comments: string[], count: number): Promise<FbActionResult> {
+  const cookies = await getActiveCookies();
+  if (!cookies.length) {
+    return {
+      success: false,
+      message: "No saved accounts found. Login first to save accounts.",
+      logs: [],
+      total: 0,
+      succeeded: 0,
+    };
+  }
+  const result = await callPython({ action: "comment_all", cookies, postUrl, comments, count }) as Record<string, unknown>;
+  return {
+    success: (result.success as boolean) ?? false,
+    count: (result.succeeded as number) ?? 0,
+    total: (result.total as number) ?? 0,
+    succeeded: (result.succeeded as number) ?? 0,
+    message: (result.message as string) ?? "",
+    logs: (result.logs as string[]) ?? [],
   };
 }

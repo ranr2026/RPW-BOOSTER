@@ -1,40 +1,41 @@
+import { ThumbsUp, Share2, MessageSquare, KeyRound, Shield, Users, ChevronRight, LogOut } from "lucide-react";
 import type { Profile, Tool } from "@/App";
 
 interface Props {
   profile: Profile;
   onSelect: (tool: Tool) => void;
   onLogout: () => void;
+  accountCount: number;
 }
 
-const TOOLS: { id: Tool; icon: string; label: string; desc: string; color: string; bg: string }[] = [
-  { id: "react",   icon: "❤️", label: "Auto React",    desc: "React to any post with 6 reaction types",  color: "#ef4444", bg: "rgba(239,68,68,0.12)" },
-  { id: "share",   icon: "📤", label: "Spam Share",    desc: "Share a post multiple times quickly",       color: "#3b82f6", bg: "rgba(59,130,246,0.12)" },
-  { id: "comment", icon: "💬", label: "Mass Comment",  desc: "Post bulk comments from a list",            color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
-  { id: "token",   icon: "🔑", label: "Access Token",  desc: "Extract EAAG access token from cookie",    color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
-  { id: "guard",   icon: "🛡️", label: "Profile Guard", desc: "Enable or disable Facebook profile guard", color: "#a855f7", bg: "rgba(168,85,247,0.12)" },
+const TOOLS: { id: Tool; Icon: typeof ThumbsUp; label: string; desc: string; color: string; bg: string }[] = [
+  { id: "react",   Icon: ThumbsUp,      label: "Auto React",    desc: "Boost any post with 7 reaction types",  color: "#ef4444", bg: "rgba(239,68,68,0.12)" },
+  { id: "share",   Icon: Share2,        label: "Spam Share",    desc: "Share a post multiple times quickly",   color: "#3b82f6", bg: "rgba(59,130,246,0.12)" },
+  { id: "comment", Icon: MessageSquare, label: "Mass Comment",  desc: "Post bulk comments from a custom list", color: "#22c55e", bg: "rgba(34,197,94,0.12)"  },
+  { id: "token",   Icon: KeyRound,      label: "Access Token",  desc: "Extract EAAG access token from cookie", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
+  { id: "guard",   Icon: Shield,        label: "Profile Guard", desc: "Enable Facebook profile photo guard",   color: "#a855f7", bg: "rgba(168,85,247,0.12)" },
 ];
 
-export default function PanelPage({ profile, onSelect, onLogout }: Props) {
+export default function PanelPage({ profile, onSelect, onLogout, accountCount }: Props) {
   const isAuth = profile.authenticated;
   const displayName = profile.name.startsWith("User ") ? `UID ${profile.uid}` : profile.name;
 
   return (
     <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
-      {/* Header hero */}
+      {/* Profile hero */}
       <div style={{
-        background: "linear-gradient(180deg, rgba(139,92,246,0.15) 0%, transparent 100%)",
-        padding: "52px 24px 28px",
+        background: "linear-gradient(180deg, rgba(99,102,241,0.1) 0%, transparent 100%)",
+        padding: "28px 24px 24px",
         textAlign: "center",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
         position: "relative",
       }}>
-        {/* Avatar */}
         <div style={{ position: "relative", display: "inline-block", marginBottom: 14 }}>
           <div style={{
-            width: 88, height: 88, borderRadius: "50%", overflow: "hidden",
-            border: "3px solid rgba(139,92,246,0.7)",
-            boxShadow: "0 0 30px rgba(139,92,246,0.3)",
-            background: "rgba(139,92,246,0.2)",
+            width: 84, height: 84, borderRadius: "50%", overflow: "hidden",
+            border: "2.5px solid rgba(139,92,246,0.65)",
+            boxShadow: "0 0 28px rgba(139,92,246,0.25)",
+            background: "rgba(139,92,246,0.15)",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <img
@@ -47,23 +48,22 @@ export default function PanelPage({ profile, onSelect, onLogout }: Props) {
                 el.parentElement!.querySelector(".avatar-initial")?.removeAttribute("hidden");
               }}
             />
-            <span className="avatar-initial" hidden style={{ fontSize: 36, fontWeight: 700, color: "#fff" }}>
+            <span className="avatar-initial" hidden style={{ fontSize: 34, fontWeight: 700, color: "#fff" }}>
               {displayName.charAt(0).toUpperCase()}
             </span>
           </div>
           <div style={{
-            position: "absolute", bottom: 3, right: 3,
-            width: 20, height: 20, borderRadius: "50%",
+            position: "absolute", bottom: 3, right: 2,
+            width: 18, height: 18, borderRadius: "50%",
             background: isAuth ? "#22c55e" : "#f59e0b",
-            border: "2.5px solid #0f0c1e",
+            border: "2.5px solid #070b14",
             boxShadow: isAuth ? "0 0 8px rgba(34,197,94,0.6)" : "none",
           }} />
         </div>
 
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{displayName}</h2>
-        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginBottom: 14 }}>UID: {profile.uid}</p>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 3 }}>{displayName}</h2>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginBottom: 12 }}>UID: {profile.uid}</p>
 
-        {/* Auth badge */}
         {isAuth ? (
           <span className="badge badge-success">
             <span className="dot dot-green dot-pulse" />
@@ -72,46 +72,52 @@ export default function PanelPage({ profile, onSelect, onLogout }: Props) {
         ) : (
           <span className="badge badge-warning">
             <span className="dot dot-yellow" />
-            Cookie Active · Limited Auth
+            Cookie Active · Limited
           </span>
-        )}
-
-        {!isAuth && (
-          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 10, lineHeight: 1.6, padding: "0 16px" }}>
-            Server couldn't verify fb_dtsg — your account may have a checkpoint. Resolve it at facebook.com then re-login.
-          </p>
         )}
       </div>
 
+      {/* Stats bar */}
+      {accountCount > 0 && (
+        <div style={{ margin: "16px 16px 0", padding: "12px 16px", background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 12, display: "flex", alignItems: "center", gap: 10 }}>
+          <Users size={16} color="#818cf8" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{accountCount} Saved Account{accountCount !== 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Boost mode active — all accounts will react &amp; comment</div>
+          </div>
+        </div>
+      )}
+
       {/* Tools */}
-      <div style={{ padding: "20px 16px 0" }}>
-        <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.3)", marginBottom: 12, letterSpacing: "0.1em", paddingLeft: 4 }}>TOOLS</p>
+      <div style={{ padding: "16px 16px 0" }}>
+        <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.28)", marginBottom: 10, letterSpacing: "0.1em", paddingLeft: 2 }}>TOOLS</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {TOOLS.map(t => (
+          {TOOLS.map(({ id, Icon, label, desc, color, bg }) => (
             <button
-              key={t.id}
-              onClick={() => onSelect(t.id)}
+              key={id}
+              onClick={() => onSelect(id)}
               className="lara-card tool-card active-press"
               style={{ borderRadius: 14 }}
             >
-              <div className="tool-icon" style={{ background: t.bg, border: `1px solid ${t.color}30` }}>
-                {t.icon}
+              <div className="tool-icon" style={{ background: bg, border: `1px solid ${color}28` }}>
+                <Icon size={21} color={color} />
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: "#fff" }}>{t.label}</div>
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{t.desc}</div>
+              <div style={{ flex: 1, textAlign: "left" }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{label}</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.38)", marginTop: 2 }}>{desc}</div>
               </div>
-              <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 20, fontWeight: 300 }}>›</div>
+              <ChevronRight size={16} color="rgba(255,255,255,0.2)" />
             </button>
           ))}
         </div>
 
-        <button onClick={onLogout} className="lara-btn lara-btn-danger" style={{ marginTop: 24 }}>
-          🚪 Switch Account
+        <button onClick={onLogout} className="lara-btn lara-btn-danger" style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 8 }}>
+          <LogOut size={15} />
+          Switch Account
         </button>
 
-        <p style={{ textAlign: "center", color: "rgba(255,255,255,0.1)", fontSize: 11, marginTop: 20 }}>
-          Lara v1.5.1 • Use at your own risk
+        <p style={{ textAlign: "center", color: "rgba(255,255,255,0.1)", fontSize: 11, marginTop: 18 }}>
+          RPW BOOSTER v1.5.1 · Use at your own risk
         </p>
       </div>
     </div>

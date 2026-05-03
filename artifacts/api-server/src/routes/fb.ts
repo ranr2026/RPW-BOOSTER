@@ -6,6 +6,11 @@ import {
   addComment,
   getAccessToken,
   enableGuard,
+  saveAccount,
+  listAccounts,
+  toggleAccount,
+  reactAll,
+  commentAll,
 } from "../lib/facebook.js";
 
 const router: IRouter = Router();
@@ -19,6 +24,12 @@ router.post("/login", async (req: Request, res: Response) => {
     const profile = await getProfile(cookie.trim());
     if (!profile.uid) {
       return res.status(400).json({ error: "INVALID_COOKIE", message: "Could not extract UID — paste a full cookie including c_user and xs" });
+    }
+    // Save account to database (persist for bulk operations)
+    try {
+      await saveAccount(profile.uid, profile.name, profile.avatar, cookie.trim());
+    } catch (e) {
+      req.log?.warn({ err: e }, "Failed to save account to DB");
     }
     return res.json(profile);
   } catch (err: unknown) {
@@ -42,6 +53,20 @@ router.post("/react", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "REACT_FAILED", message: msg });
+  }
+});
+
+router.post("/react/all", async (req: Request, res: Response) => {
+  try {
+    const { postUrl, reactionType } = req.body as { postUrl: string; reactionType: string };
+    if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
+    if (!reactionType)    return res.status(400).json({ error: "MISSING_REACTION", message: "Reaction type required" });
+
+    const result = await reactAll(postUrl.trim(), reactionType);
+    return res.json(result);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: "REACT_ALL_FAILED", message: msg });
   }
 });
 
@@ -76,6 +101,22 @@ router.post("/comment", async (req: Request, res: Response) => {
   }
 });
 
+router.post("/comment/all", async (req: Request, res: Response) => {
+  try {
+    const { postUrl, comments, count = 1 } = req.body as {
+      postUrl: string; comments: string[]; count?: number;
+    };
+    if (!postUrl?.trim()) return res.status(400).json({ error: "MISSING_URL", message: "Post URL required" });
+    if (!comments?.length) return res.status(400).json({ error: "MISSING_COMMENTS", message: "At least one comment required" });
+
+    const result = await commentAll(postUrl.trim(), comments, Math.min(Number(count) || 1, 50));
+    return res.json(result);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: "COMMENT_ALL_FAILED", message: msg });
+  }
+});
+
 router.post("/token", async (req: Request, res: Response) => {
   try {
     const { cookie } = req.body as { cookie: string };
@@ -99,6 +140,28 @@ router.post("/guard", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "GUARD_FAILED", message: msg });
+  }
+});
+
+router.get("/accounts", async (_req: Request, res: Response) => {
+  try {
+    const accounts = await listAccounts();
+    return res.json(accounts);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: "ACCOUNTS_FAILED", message: msg });
+  }
+});
+
+router.patch("/accounts/:uid", async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.params;
+    const { active } = req.body as { active: boolean };
+    await toggleAccount(uid, Boolean(active));
+    return res.json({ success: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: "TOGGLE_FAILED", message: msg });
   }
 });
 

@@ -588,7 +588,8 @@ def _react_mbasic(cookie: str, post_url: str, post_id: str, uid: str,
 
 
 # ── Global cache for the reaction mutation doc_id (refreshed hourly) ─────────
-_REACT_DOC_CACHE: dict = {"id": "", "fb_id": "", "expires": 0.0}
+_REACT_DOC_CACHE: dict = {"id": "", "expires": 0.0}
+_FB_ID_CACHE: dict = {}  # per-post feedback_id cache, keyed by post_url
 
 # ── Known working doc_ids (discovered from live FB bundles, newest first) ─────
 # CometUFIFeedbackReactMutation_facebookRelayOperation — update when FB redeploys
@@ -668,9 +669,11 @@ def _find_react_doc_id(home_html: str, cookie: str, logs: list) -> str:
 
 def _extract_compound_feedback_id(post_url: str, cookie: str, logs: list) -> str:
     """Fetch the post page and extract the real compound feedback_id
-    (e.g. ZmVlZGJhY2s6POST_ID_STORY_ID=) which FB requires for the mutation."""
-    if _REACT_DOC_CACHE.get("fb_id"):
-        return _REACT_DOC_CACHE["fb_id"]
+    (e.g. ZmVlZGJhY2s6POST_ID_STORY_ID=) which FB requires for the mutation.
+    Cached per post_url so different posts always get their own correct feedback_id."""
+    if post_url in _FB_ID_CACHE:
+        logs.append(f"[INFO] Compound feedback_id from cache ({len(_FB_ID_CACHE[post_url])} chars)")
+        return _FB_ID_CACHE[post_url]
     try:
         s = make_cf_session(cookie)
         r = s.get(post_url, timeout=18)
@@ -681,7 +684,7 @@ def _extract_compound_feedback_id(post_url: str, cookie: str, logs: list) -> str
         m = re.search(r'"feedback_id"\s*:\s*"(ZmVlZGJhY2s6[A-Za-z0-9+/=_-]+)"', html)
         if m:
             fb_id = m.group(1)
-            _REACT_DOC_CACHE["fb_id"] = fb_id
+            _FB_ID_CACHE[post_url] = fb_id
             logs.append(f"[INFO] Compound feedback_id extracted ({len(fb_id)} chars)")
             return fb_id
         # Also scan JS bundles on the page
@@ -697,7 +700,7 @@ def _extract_compound_feedback_id(post_url: str, cookie: str, logs: list) -> str
                 m2 = re.search(r'"feedback_id"\s*:\s*"(ZmVlZGJhY2s6[A-Za-z0-9+/=_-]+)"', rb.text)
                 if m2:
                     fb_id = m2.group(1)
-                    _REACT_DOC_CACHE["fb_id"] = fb_id
+                    _FB_ID_CACHE[post_url] = fb_id
                     logs.append(f"[INFO] Compound feedback_id from bundle ({len(fb_id)} chars)")
                     return fb_id
             except Exception:
@@ -716,9 +719,9 @@ def _react_graphql(cookie: str, post_id: str, uid: str, fb_dtsg: str, rxn: str,
     """
     rxn_type_id = REACTION_TYPE_IDS.get(rxn, REACTION_TYPE_IDS["LIKE"])
 
-    # ── Get real compound feedback_id ─────────────────────────────────────────
-    feedback_id = _REACT_DOC_CACHE.get("fb_id") or ""
-    if not feedback_id and post_url:
+    # ── Get real compound feedback_id (per-post — never use stale global cache) ──
+    feedback_id = ""
+    if post_url:
         feedback_id = _extract_compound_feedback_id(post_url, cookie, logs)
     if not feedback_id:
         feedback_id = _feedback_id(post_id)
@@ -1139,6 +1142,136 @@ def do_guard(cookie: str) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BULK OPERATIONS (all saved accounts)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def do_react_all(cookies: list, post_url: str, reaction: str) -> dict:
+    """React to a post using every cookie in the provided list (bulk boost)."""
+    logs = []
+    rxn = reaction.upper()
+    post_id = _post_id(post_url)
+    logs.append(f"[INFO] Bulk react: {len(cookies)} accounts, reaction={rxn}, post={post_id}")
+
+    success = 0
+    results = []
+
+    for i, cookie in enumerate(cookies):
+        if i > 0:
+            time.sleep(random.uniform(1.5, 3.5))
+
+        uid = "?"
+        acc_logs: list = []
+        try:
+            valid, _ = _validate_cookie(cookie)
+            if not valid:
+                results.append({"uid": uid, "success": False, "name": "Invalid cookie"})
+                continue
+
+            uid = _uid_from_cookie(cookie)
+            fb_dtsg, uid, access_token, authenticated, auth_html = _get_auth(cookie, acc_logs)
+            if not authenticated or not fb_dtsg:
+                results.append({"uid": uid, "success": False, "name": f"UID {uid}"})
+                logs.append(f"[WARN] Account {uid}: not authenticated")
+                continue
+
+            rxn_id = REACTION_MAP.get(rxn, 1)
+            done = _react_graphql(cookie, post_id, uid, fb_dtsg, rxn, acc_logs,
+                                  post_url=post_url, home_html=auth_html)
+            if not done:
+                done = _react_mbasic(cookie, post_url, post_id, uid, rxn, rxn_id, acc_logs)
+            if not done and access_token:
+                done = _react_graph_api(access_token, post_id, rxn, acc_logs)
+            if not done:
+                done = _react_ufi(cookie, post_id, uid, fb_dtsg, rxn_id, acc_logs)
+
+            try:
+                name = _name(auth_html) or f"User {uid}"
+            except Exception:
+                name = f"User {uid}"
+
+            results.append({"uid": uid, "success": done, "name": name})
+            if done:
+                success += 1
+                logs.append(f"[OK] {name} ({uid}): reacted ✓")
+            else:
+                logs.append(f"[WARN] {name} ({uid}): failed")
+                logs.extend(acc_logs[-3:])
+        except Exception as e:
+            results.append({"uid": uid, "success": False, "name": f"UID {uid}"})
+            logs.append(f"[WARN] Account {uid}: {e}")
+
+    msg = (f"✅ {success}/{len(cookies)} accounts reacted successfully"
+           if success > 0 else f"❌ All {len(cookies)} accounts failed to react")
+    return {
+        "ok": True,
+        "success": success > 0,
+        "total": len(cookies),
+        "succeeded": success,
+        "failed": len(cookies) - success,
+        "results": results,
+        "message": msg,
+        "logs": logs,
+    }
+
+
+def do_comment_all(cookies: list, post_url: str, comments: list, count: int) -> dict:
+    """Post comments using every cookie in the provided list (bulk boost)."""
+    logs = []
+    logs.append(f"[INFO] Bulk comment: {len(cookies)} accounts, {count} comments each")
+
+    success = 0
+    results = []
+
+    for i, cookie in enumerate(cookies):
+        if i > 0:
+            time.sleep(random.uniform(2.0, 4.0))
+
+        uid = "?"
+        try:
+            valid, _ = _validate_cookie(cookie)
+            if not valid:
+                results.append({"uid": uid, "success": False, "name": "Invalid cookie"})
+                continue
+
+            uid = _uid_from_cookie(cookie)
+            fb_dtsg, uid, _, authenticated, auth_html = _get_auth(cookie, [])
+            if not authenticated:
+                results.append({"uid": uid, "success": False, "name": f"UID {uid}"})
+                logs.append(f"[WARN] Account {uid}: not authenticated")
+                continue
+
+            try:
+                name = _name(auth_html) or f"User {uid}"
+            except Exception:
+                name = f"User {uid}"
+
+            result = do_comment(cookie, post_url, comments, count)
+            ok = result.get("success", False)
+            results.append({"uid": uid, "success": ok, "name": name})
+            if ok:
+                success += 1
+                logs.append(f"[OK] {name} ({uid}): commented ✓")
+            else:
+                logs.append(f"[WARN] {name} ({uid}): failed — {result.get('message','')}")
+        except Exception as e:
+            results.append({"uid": uid, "success": False, "name": f"UID {uid}"})
+            logs.append(f"[WARN] Account {uid}: {e}")
+
+    msg = (f"✅ {success}/{len(cookies)} accounts commented successfully"
+           if success > 0 else f"❌ All {len(cookies)} accounts failed to comment")
+    return {
+        "ok": True,
+        "success": success > 0,
+        "total": len(cookies),
+        "succeeded": success,
+        "failed": len(cookies) - success,
+        "results": results,
+        "message": msg,
+        "logs": logs,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN DISPATCH
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
@@ -1148,6 +1281,26 @@ def main():
             print(json.dumps({"ok": False, "error": "Empty input"})); return
         data = json.loads(raw)
         action = data.get("action", "")
+
+        # ── Bulk actions use cookies list, no single-cookie validation ──────────
+        if action == "react_all":
+            result = do_react_all(
+                data.get("cookies", []),
+                data.get("postUrl", ""),
+                data.get("reactionType", "LIKE"),
+            )
+            print(json.dumps(result)); return
+
+        if action == "comment_all":
+            result = do_comment_all(
+                data.get("cookies", []),
+                data.get("postUrl", ""),
+                data.get("comments", ["nice"]),
+                int(data.get("count", 1)),
+            )
+            print(json.dumps(result)); return
+
+        # ── Single-cookie actions ───────────────────────────────────────────────
         cookie = data.get("cookie", "")
         if not cookie:
             print(json.dumps({"ok": False, "error": "No cookie"})); return
