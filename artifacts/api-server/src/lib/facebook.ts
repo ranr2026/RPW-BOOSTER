@@ -153,6 +153,17 @@ export async function enableGuard(cookie: string, enable: boolean): Promise<FbAc
   };
 }
 
+export async function guardEmail(email: string, password: string, enable: boolean): Promise<FbActionResult & { uid?: string; name?: string }> {
+  const result = await callPython({ action: "guard_email", email, password, enable }) as FbActionResult & { ok: boolean; uid?: string; name?: string };
+  return {
+    success: result.success ?? false,
+    message: result.message ?? "",
+    logs: result.logs ?? [],
+    uid: result.uid,
+    name: result.name,
+  };
+}
+
 // ── Database account management ───────────────────────────────────────────────
 
 export async function saveAccount(uid: string, name: string, avatar: string, cookie: string): Promise<void> {

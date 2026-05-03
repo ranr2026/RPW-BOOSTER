@@ -4,7 +4,19 @@ Lara Web — Facebook helper (curl_cffi edition).
 Uses curl_cffi with Chrome TLS fingerprint impersonation to bypass
 Cloudflare and Facebook bot-detection. Called via stdin/stdout JSON.
 """
-import sys, json, re, time, base64, urllib.parse, random, string
+import sys, json, re, time, base64, urllib.parse, random, string, uuid
+
+# ── Mobile FBAN user-agents (rotated per request — same as reference script) ─
+UA_LIST = [
+    "Mozilla/5.0 (Linux; Android 12; OnePlus 9 Build/SKQ1.210216.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/111.0.5563.116 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/335.0.0.11.118;]",
+    "Mozilla/5.0 (Linux; Android 13; Google Pixel 6a Build/TQ3A.230605.012; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/114.0.5735.196 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/340.0.0.15.119;]",
+    "Mozilla/5.0 (Linux; Android 11; SM-G998B Build/RP1A.200720.012; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/112.0.5615.136 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/336.0.0.12.120;]",
+    "Mozilla/5.0 (Linux; Android 10; Pixel 4 XL Build/QD1A.190821.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/113.0.5672.162 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/337.0.0.13.121;]",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 7 Pro Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/115.0.5790.166 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/341.0.0.16.122;]",
+    "Mozilla/5.0 (Linux; Android 9; SM-G973F Build/PPR1.180610.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.153 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/334.0.0.10.117;]",
+    "Mozilla/5.0 (Linux; Android 8.1.0; Nexus 6P Build/OPM6.171019.030.B1; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/109.0.5414.117 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/333.0.0.9.116;]",
+    "Mozilla/5.0 (Linux; Android 7.0; SM-G930V Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/108.0.5359.128 Mobile Safari/537.36[FBAN/EMA;FBLC/en_US;FBAV/332.0.0.8.115;]",
+]
 
 # ── curl_cffi Chrome impersonation (TLS + HTTP/2 fingerprint) ───────────────
 try:
@@ -1022,7 +1034,45 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
         logs.append(f"[INFO] Share {i+1}/{count}")
         done = False
 
-        # Method A: mbasic share form (most reliable, fastest) — skip if we know it fails
+        # Method A: Graph API me/feed — HIGHEST priority when token available (reference script approach)
+        # Uses published=0 (timeline post, more permissive than published=1)
+        if not done and access_token and best_method in (None, "graph_api"):
+            try:
+                is_video = any(k in post_url.lower() for k in ["video", "reel", "watch", "fbid"])
+                ga_headers = {
+                    "authority": "graph.facebook.com",
+                    "cache-control": "max-age=0",
+                    "user-agent": random.choice(UA_LIST),
+                    **({"accept": "application/json",
+                        "content-type": "application/x-www-form-urlencoded",
+                        "sec-fetch-mode": "cors",
+                        "sec-fetch-site": "cross-site"} if is_video else {}),
+                }
+                r_ga = s_web.post(
+                    "https://graph.facebook.com/v18.0/me/feed",
+                    params={"link": post_url, "published": "0", "access_token": access_token},
+                    headers=ga_headers, timeout=25,
+                )
+                d_ga = {}
+                try: d_ga = r_ga.json()
+                except Exception: pass
+                logs.append(f"[DEBUG] Graph me/feed → {r_ga.status_code} {str(d_ga)[:120]}")
+                if "id" in d_ga:
+                    target = d_ga["id"].split("_")[0] if "_" in d_ga["id"] else d_ga["id"]
+                    logs.append(f"[OK] Share {i+1} via Graph API me/feed ✓ uid={target}")
+                    done = True
+                    best_method = "graph_api"
+                elif "error" in d_ga:
+                    emsg = d_ga["error"].get("message", "").lower()
+                    logs.append(f"[DEBUG] Graph API error: {d_ga['error'].get('message','')[:100]}")
+                    # Suspend/checkpoint — mark token as invalid for this run
+                    if any(k in emsg for k in ["suspended", "checkpoint", "blocked", "disabled", "login required"]):
+                        logs.append("[WARN] Graph API: account suspended/blocked")
+                        access_token = ""  # stop using token for remaining shares
+            except Exception as e:
+                logs.append(f"[WARN] Graph me/feed: {e}")
+
+        # Method B: mbasic share form (most reliable fallback, fastest) — skip if we know it fails
         if mbasic_form_url and best_method in (None, "mbasic"):
             try:
                 # Re-fetch form only if first iteration failed to cache
@@ -1035,7 +1085,7 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
             except Exception as e:
                 logs.append(f"[WARN] mbasic share {i+1}: {e}")
 
-        # Method B: GraphQL createShareStory — use if mbasic failed
+        # Method C: GraphQL createShareStory — use if mbasic failed
         if not done and best_method in (None, "graphql"):
             try:
                 r = s_web.post("https://www.facebook.com/api/graphql/", data={
@@ -1055,7 +1105,7 @@ def do_share(cookie: str, post_url: str, count: int) -> dict:
             except Exception as e:
                 logs.append(f"[WARN] GraphQL share {i+1}: {e}")
 
-        # Method C: Graph API (needs access token)
+        # Method C2: Graph API published=1 (secondary, if method A failed but token still valid)
         if not done and access_token and best_method in (None, "graph_api"):
             try:
                 r = s_web.post("https://graph.facebook.com/v18.0/me/feed",
@@ -1216,11 +1266,41 @@ def do_token(cookie: str) -> dict:
     uid = _uid_from_cookie(cookie)
     tok = ""
 
-    # Strategy 1: Load pages and scan HTML for EAAG token
+    # Strategy 1 (primary): business.facebook.com/business_locations — exact headers from reference
+    # This endpoint reliably embeds the EAAG token in the page HTML
+    _biz_headers = {
+        "user-agent": random.choice(UA_LIST),
+        "referer": "https://www.facebook.com/",
+        "host": "business.facebook.com",
+        "origin": "https://business.facebook.com",
+        "upgrade-insecure-requests": "1",
+        "accept-language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "cache-control": "max-age=0",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+        "content-type": "text/html; charset=utf-8",
+    }
+    try:
+        s_biz = make_cf_session(cookie)
+        r_biz = s_biz.get("https://business.facebook.com/business_locations",
+                          headers=_biz_headers, timeout=14, allow_redirects=True)
+        logs.append(f"[INFO] business_locations → {r_biz.status_code} ({len(r_biz.text)}B)")
+        if r_biz.status_code == 200:
+            # Try simple \w+ pattern first (reference script), then extended
+            m_biz = re.search(r"(EAAG\w+)", r_biz.text)
+            if m_biz:
+                tok = m_biz.group(1)
+                logs.append("[OK] Token via business_locations (primary) ✓")
+            else:
+                tok = _token_extended(r_biz.text)
+                if tok:
+                    logs.append("[OK] Token via business_locations (extended) ✓")
+    except Exception as e:
+        logs.append(f"[WARN] business_locations: {e}")
+
+    # Strategy 1b: Additional pages with rotating FBAN user-agents
     token_pages = [
         ("https://www.facebook.com/",                       False),
         ("https://www.facebook.com/marketplace/",            False),
-        ("https://business.facebook.com/",                   False),
         ("https://developers.facebook.com/tools/explorer/",  False),
         ("https://adsmanager.facebook.com/adsmanager/manage", False),
         ("https://www.facebook.com/settings/",               False),
@@ -1232,10 +1312,12 @@ def do_token(cookie: str) -> dict:
             break
         try:
             s = make_cf_session(cookie, mobile=mob)
+            s.headers.update({"User-Agent": random.choice(UA_LIST)})
             r = s.get(url, timeout=14, allow_redirects=True)
             logs.append(f"[INFO] {url.split('/')[2]} → {r.status_code} ({len(r.text)}B)")
             if r.status_code == 200:
-                t = _token_extended(r.text)
+                m_p = re.search(r"(EAAG\w+)", r.text)
+                t = m_p.group(1) if m_p else _token_extended(r.text)
                 if t:
                     tok = t
                     logs.append(f"[OK] Token found on {url.split('/')[2]} ✓")
@@ -1319,8 +1401,114 @@ def do_token(cookie: str) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GUARD
+# GUARD — helper functions
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _bgraph_login(email: str, password: str, logs: list) -> str:
+    """Get EAAG access token from Facebook via email+password using b-graph.facebook.com.
+    This is the approach from the reference guard script (get_token function)."""
+    try:
+        headers = {
+            "authorization": "OAuth 350685531728|62f8ce9f74b12f84c123cc23437a4a32",
+            "x-fb-friendly-name": "Authenticate",
+            "x-fb-connection-type": "Unknown",
+            "accept-encoding": "gzip, deflate",
+            "content-type": "application/x-www-form-urlencoded",
+            "x-fb-http-engine": "Liger",
+            "user-agent": random.choice(UA_LIST),
+        }
+        data = {
+            "adid": "".join(random.choices("0123456789abcdef", k=16)),
+            "format": "json",
+            "device_id": str(uuid.uuid4()),
+            "email": email,
+            "password": password,
+            "generate_analytics_claims": "0",
+            "credentials_type": "password",
+            "source": "login",
+            "error_detail_type": "button_with_disabled",
+            "enroll_misauth": "false",
+            "generate_session_cookies": "0",
+            "generate_machine_id": "0",
+            "fb_api_req_friendly_name": "authenticate",
+        }
+        r = cf.post("https://b-graph.facebook.com/auth/login",
+                    data=data, headers=headers, timeout=14)
+        result = {}
+        try: result = r.json()
+        except Exception: pass
+        token = result.get("access_token", "")
+        if token:
+            logs.append("[OK] b-graph login ✓")
+        else:
+            err = result.get("error", {})
+            logs.append(f"[WARN] b-graph: {err.get('message', 'no token')} (code={err.get('code','')})")
+        return token
+    except Exception as e:
+        logs.append(f"[WARN] b-graph login: {e}")
+        return ""
+
+
+def _get_uid_from_token(eaag_token: str, logs: list) -> tuple:
+    """Return (uid, name) from an EAAG access token via graph.facebook.com/me."""
+    try:
+        r = cf.get("https://graph.facebook.com/me",
+                   params={"access_token": eaag_token, "fields": "id,name"},
+                   timeout=10)
+        info = {}
+        try: info = r.json()
+        except Exception: pass
+        uid = info.get("id", "")
+        name = info.get("name", "")
+        if uid:
+            logs.append(f"[INFO] Logged in: {name} ({uid})")
+        else:
+            logs.append(f"[WARN] get_me: {info}")
+        return uid, name
+    except Exception as e:
+        logs.append(f"[WARN] get_me: {e}")
+        return "", ""
+
+
+def _turn_shield_token(eaag_token: str, uid: str, enable: bool, logs: list) -> bool:
+    """Toggle profile guard using an EAAG access token.
+    Uses doc_id 1477043292367183 — from reference guard script (turn_shield function)."""
+    try:
+        data = {
+            "variables": json.dumps({
+                "0": {
+                    "is_shielded": enable,
+                    "session_id": str(uuid.uuid4()),
+                    "actor_id": uid,
+                    "client_mutation_id": str(uuid.uuid4()),
+                }
+            }),
+            "method": "post",
+            "doc_id": "1477043292367183",
+        }
+        headers = {
+            "Authorization": f"OAuth {eaag_token}",
+            "User-Agent": random.choice(UA_LIST),
+        }
+        r = cf.post("https://graph.facebook.com/graphql",
+                    json=data, headers=headers, timeout=14)
+        resp = r.text
+        logs.append(f"[DEBUG] turn_shield doc_id=1477043292367183 → {r.status_code}: {resp[:150]}")
+        if '"is_shielded":true' in resp:
+            logs.append("[OK] Shield enabled via token (doc_id 1477043292367183) ✓")
+            return True
+        elif '"is_shielded":false' in resp:
+            logs.append("[OK] Shield disabled via token ✓")
+            return True
+        elif r.status_code == 200 and '"errors"' not in resp and "error" not in resp.lower()[:100]:
+            if len(resp) > 20:
+                logs.append("[OK] Shield toggled (200 OK, no error) ✓")
+                return True
+    except Exception as e:
+        logs.append(f"[WARN] turn_shield_token: {e}")
+    return False
+
+
 def _get_profile_photo_id(s: object, uid: str, logs: list) -> str:
     """Extract current profile picture photo ID from the profile page."""
     try:
@@ -1372,7 +1560,7 @@ def _scan_js_for_guard_docid(s: object, page_html: str, logs: list) -> str:
 def do_guard(cookie: str, enable: bool = True) -> dict:
     logs = []
     uid = _uid_from_cookie(cookie)
-    fb_dtsg, uid, _, authenticated, auth_html = _get_auth(cookie, logs)
+    fb_dtsg, uid, access_token, authenticated, auth_html = _get_auth(cookie, logs)
     action_word = "Enabling" if enable else "Disabling"
     logs.append(f"[INFO] {action_word} profile guard for UID {uid}")
     if not fb_dtsg or not authenticated:
@@ -1383,6 +1571,22 @@ def do_guard(cookie: str, enable: bool = True) -> dict:
     s = make_cf_session(cookie)
     sm = make_cf_session(cookie, mobile=True)
     guard_val = "1" if enable else "0"
+
+    # ── Method 0: turn_shield via EAAG token (doc_id 1477043292367183) — reference script approach ──
+    # Try with the access_token from auth first; if not found, extract fresh via do_token
+    _tok = access_token
+    if not _tok:
+        try:
+            tok_res = do_token(cookie)
+            _tok = tok_res.get("token", "")
+            if _tok:
+                logs.append("[INFO] Extracted fresh EAAG token for turn_shield")
+        except Exception as e:
+            logs.append(f"[DEBUG] token extract: {e}")
+    if _tok:
+        if _turn_shield_token(_tok, uid, enable, logs):
+            msg = "✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!"
+            return {"ok": True, "success": True, "message": msg, "logs": logs}
 
     lsd = ""
     if auth_html:
@@ -1664,6 +1868,37 @@ def do_guard(cookie: str, enable: bool = True) -> dict:
     }
 
 
+def do_guard_email(email: str, password: str, enable: bool = True) -> dict:
+    """Enable/disable profile guard via email+password — uses b-graph login + turn_shield.
+    This is the full reference-script approach: b-graph.facebook.com/auth/login → turn_shield."""
+    logs = []
+    action_word = "Enabling" if enable else "Disabling"
+    logs.append(f"[INFO] {action_word} guard via email: {email[:4]}***@{email.split('@')[-1] if '@' in email else '???'}")
+
+    # Step 1: Get EAAG token via b-graph login
+    eaag_token = _bgraph_login(email, password, logs)
+    if not eaag_token:
+        return {
+            "ok": True, "success": False,
+            "message": "❌ Login failed — check email/password and try again",
+            "logs": logs,
+        }
+
+    # Step 2: Get UID from token
+    uid, name = _get_uid_from_token(eaag_token, logs)
+    if not uid:
+        return {
+            "ok": True, "success": False,
+            "message": "❌ Could not get account info from token",
+            "logs": logs,
+        }
+
+    # Step 3: Toggle shield
+    success = _turn_shield_token(eaag_token, uid, enable, logs)
+    msg = ("✅ Profile guard enabled!" if enable else "✅ Profile guard disabled!") if success else "❌ Guard toggle failed — Facebook may have blocked this token"
+    return {"ok": True, "success": success, "message": msg, "uid": uid, "name": name, "logs": logs}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # BULK OPERATIONS (all saved accounts)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1838,6 +2073,15 @@ def main():
                 data.get("postUrl", ""),
                 data.get("comments", ["nice"]),
                 int(data.get("count", 1)),
+            )
+            print(json.dumps(result)); return
+
+        # ── Email+password guard (no cookie needed) ─────────────────────────────
+        if action == "guard_email":
+            result = do_guard_email(
+                data.get("email", ""),
+                data.get("password", ""),
+                bool(data.get("enable", True)),
             )
             print(json.dumps(result)); return
 

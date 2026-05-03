@@ -90,6 +90,9 @@ export const api = {
   guard: (cookie: string, enable: boolean) =>
     post<ActionResult>("/guard", { cookie, enable }),
 
+  guardEmail: (email: string, password: string, enable: boolean) =>
+    post<ActionResult & { uid?: string; name?: string }>("/guard/email", { email, password, enable }),
+
   getAccounts: () => get<SavedAccount[]>("/accounts"),
 
   toggleAccount: (uid: string, active: boolean) =>

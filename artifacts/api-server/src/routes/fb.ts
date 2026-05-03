@@ -6,6 +6,7 @@ import {
   addComment,
   getAccessToken,
   enableGuard,
+  guardEmail,
   saveAccount,
   listAccounts,
   toggleAccount,
@@ -151,6 +152,20 @@ router.post("/guard", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ error: "GUARD_FAILED", message: msg });
+  }
+});
+
+router.post("/guard/email", async (req: Request, res: Response) => {
+  try {
+    const { email, password, enable = true } = req.body as { email: string; password: string; enable?: boolean };
+    if (!email?.trim()) return res.status(400).json({ error: "MISSING_EMAIL", message: "Email required" });
+    if (!password)      return res.status(400).json({ error: "MISSING_PASSWORD", message: "Password required" });
+
+    const result = await guardEmail(email.trim(), password, Boolean(enable));
+    return res.json(result);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(500).json({ error: "GUARD_EMAIL_FAILED", message: msg });
   }
 });
 
